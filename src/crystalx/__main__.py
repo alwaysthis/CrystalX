@@ -17,6 +17,9 @@ def main() -> int:
         custom = ROOT / "config/custom/app.json"
         if custom.exists():
             config.update(json.loads(custom.read_text(encoding="utf-8")))
+        if sys.platform=='win32':
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('CrystalX.Desktop')
         app = QApplication(sys.argv)
         from .ui import MainWindow
         window = MainWindow(config)

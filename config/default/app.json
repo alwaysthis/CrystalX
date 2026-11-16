@@ -1,5 +1,9 @@
 {
   "app_name": "crystalX",
   "window_width": 1280,
-  "window_height": 800
+  "window_height": 800,
+  "bond_settings": {
+    "bonds_visible": true,
+    "bond_width": 0.12
+  }
 }

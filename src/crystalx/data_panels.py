@@ -1,24 +1,28 @@
 """Read-only structure data widgets with shared coordinate navigation."""
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QDialog,QVBoxLayout,QTabBar,QTableWidget,QTableWidgetItem,
-    QAbstractItemView,QTreeWidget,QTreeWidgetItem,QPushButton,QHeaderView,QToolButton,QLabel)
+    QAbstractItemView,QTreeWidget,QTreeWidgetItem,QPushButton,QHeaderView,QToolButton,QLabel,QWidget)
 
 from .icons import icon
+from .workspace_tabs import WorkspaceTabs
+from .dialog_chrome import install_dialog_chrome
 
 class CoordinateDialog(QDialog):
     selection_changed=pyqtSignal(set)
     def __init__(self,parent):
         super().__init__(parent)
         self.setWindowTitle("原子坐标"); self.resize(850,540)
-        self.tabs=QTabBar(); self.table=QTableWidget(0,6)
-        self.tabs.addTab('Cartesian · Å'); self.tabs.addTab('Direct · 分数坐标')
+        self.tabs=WorkspaceTabs(); self.table=QTableWidget(0,6)
+        shared_page=QWidget(); page_layout=QVBoxLayout(shared_page); page_layout.addWidget(self.table)
+        self.tabs.addTab(shared_page,'Cartesian · Å'); self.tabs.addTab(shared_page,'Direct · 分数坐标')
         self.table.setHorizontalHeaderLabels(['编号','元素','标签','x','y','z'])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerItem)
         self.table.verticalHeader().hide()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        layout=QVBoxLayout(self); layout.addWidget(self.tabs); layout.addWidget(self.table)
+        layout=QVBoxLayout(self); layout.addWidget(self.tabs)
+        install_dialog_chrome(self,layout)
         self.structure=None; self.selected=set()
         self.tabs.currentChanged.connect(self.switch_mode)
         self.table.itemSelectionChanged.connect(self.on_selection)
@@ -66,6 +70,9 @@ class AtomList(QTreeWidget):
         for col,width in [(0,40),(1,42),(3,28),(4,28)]:
             self.header().setSectionResizeMode(col,QHeaderView.ResizeMode.Fixed); self.setColumnWidth(col,width)
         self.setExpandsOnDoubleClick(False)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setAllColumnsShowFocus(False)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
     def refresh(self,structure,selected):
         expanded={i for i in range(self.topLevelItemCount()) if self.topLevelItem(i).isExpanded()}
@@ -79,13 +86,13 @@ class AtomList(QTreeWidget):
                 item.setData(0,Qt.ItemDataRole.UserRole,i)
                 text='Cartesian · Å  '+ '  '.join(f'{v:8.3f}' for v in cart[i])+'\nDirect         '+'  '.join(f'{v:8.3f}' for v in structure.positions[i])
                 detail=QTreeWidgetItem(item,[text]); detail.setFlags(Qt.ItemFlag.ItemIsEnabled); detail.setFirstColumnSpanned(True)
-                rows=''.join('<tr><td width=85>'+name+'</td>'+''.join(f'<td width=55 align=right>{v:.3f}</td>' for v in point)+'</tr>' for name,point in [('Cartesian · Å',cart[i]),('Direct',structure.positions[i])])
+                rows=''.join('<tr><td width=78>'+name+'</td>'+''.join(f'<td width=48 align=right>{v:.3f}</td>' for v in point)+'</tr>' for name,point in [('Cartesian · Å',cart[i]),('Direct',structure.positions[i])])
                 label=QLabel('<table cellspacing=0 cellpadding=1>'+rows+'</table>'); label.setStyleSheet("font-family:'Segoe UI','Microsoft YaHei';font-size:12px;padding:3px 0;background:transparent;")
                 detail.setText(0,''); detail.setData(0,Qt.ItemDataRole.UserRole,text)
                 self.setItemWidget(detail,0,label)
-                choose=QToolButton(); choose.setIcon(icon('atom')); choose.setCheckable(True); choose.setChecked(i in selected); choose.setFixedSize(24,22); choose.setToolTip('选择此原子；Ctrl 叠加')
+                choose=QToolButton(); choose.setStyleSheet('QToolButton {background:transparent;border:0;} QToolButton:hover {background:#e4ece7;} QToolButton:pressed {background:#d6e6dd;} QToolButton:checked {background:#c6dfd2;border:1px solid #729c86;border-radius:3px;}'); choose.setIcon(icon('atom')); choose.setCheckable(True); choose.setChecked(i in selected); choose.setFixedSize(24,22); choose.setToolTip('选择 / 取消此原子（叠加）')
                 choose.clicked.connect(lambda checked=False,i=i:self.atom_requested.emit(i)); self.setItemWidget(item,3,choose)
-                button=QToolButton(); button.setArrowType(Qt.ArrowType.DownArrow if i in expanded else Qt.ArrowType.RightArrow); button.setFixedSize(24,22); button.setToolTip('展开 / 收起坐标')
+                button=QToolButton(); button.setProperty("moreButton",True); button.setIcon(icon("more")); button.setFixedSize(24,22); button.setToolTip('展开 / 收起坐标')
                 button.clicked.connect(lambda checked=False,item=item,button=button:self.toggle_coordinates(item,button))
                 self.setItemWidget(item,4,button); item.setExpanded(i in expanded)
                 if i==current: self.setCurrentItem(item)
@@ -93,4 +100,4 @@ class AtomList(QTreeWidget):
 
     def toggle_coordinates(self,item,button):
         item.setExpanded(not item.isExpanded())
-        button.setArrowType(Qt.ArrowType.DownArrow if item.isExpanded() else Qt.ArrowType.RightArrow)
+        button.setToolTip("收起坐标" if item.isExpanded() else "展开坐标")

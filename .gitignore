@@ -10,3 +10,4 @@ logs/*
 config/custom/*
 !config/custom/.gitkeep
 output/
+*.lnk

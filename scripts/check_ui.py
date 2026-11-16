@@ -11,8 +11,15 @@ app=QApplication([])
 for font in ['C:/Windows/Fonts/segoeui.ttf','C:/Windows/Fonts/msyh.ttc']: QFontDatabase.addApplicationFont(font)
 app.setFont(QFont('Microsoft YaHei',10))
 window=MainWindow({'window_width':1500,'window_height':1000})
-assert window.load_path(Path(__file__).resolve().parents[1]/'examples/Si.vasp')
-window.show(); app.processEvents()
+shell=window
+assert shell.work_tabs.count()==0 and shell.terminal.count()==1
+shell.show(); app.processEvents()
+assert shell.welcome_logo.isVisible()
+shell.grab().save(str(Path(__file__).resolve().parents[1]/'output/startup-preview.png'))
+assert shell.load_path(Path(__file__).resolve().parents[1]/'examples/Si.vasp')
+assert not shell.welcome_logo.isVisible()
+window=shell.current_page()
+app.processEvents()
 assert window.viewport.mode=="rotate"
 item=window.atom_list.topLevelItem(0); item.setExpanded(True)
 assert item.child(0).data(0,Qt.ItemDataRole.UserRole).count('\n')==1
@@ -32,9 +39,13 @@ dialog=window.coordinate_dialog; table=dialog.table
 assert table.rowCount()==64
 table.verticalScrollBar().setValue(24); app.processEvents()
 scroll=table.verticalScrollBar().value()
-dialog.tabs.setCurrentIndex(1); app.processEvents()
+dialog.tabs.setCurrentIndex(1); dialog.set_mode(1); app.processEvents()
 assert table.verticalScrollBar().value()==scroll
 assert table.item(1,3).text()==f'{window.document.structure.positions[1][0]:.9f}'
+# Editor row selection is independent from viewport and information-list selection.
+window.clear_selection(); window.atom_list.setCurrentItem(window.atom_list.topLevelItem(3))
+table.selectRow(2); app.processEvents()
+assert not window.selected and window.atom_list.indexOfTopLevelItem(window.atom_list.currentItem())==3
 window.set_selection({1})
 window.translation[0].setValue(.1); window.translate()
 assert dialog.table.item(1,3).text()==f'{window.document.structure.positions[1][0]:.9f}'
@@ -82,28 +93,73 @@ QTest.mouseRelease(window.viewport,Qt.MouseButton.LeftButton,pos=QPoint(window.v
 assert window.selected
 window.clear_selection(); window.set_tool('rotate')
 window.pick(1)
-QTest.mouseClick(window.viewport,Qt.MouseButton.LeftButton,pos=QPoint(window.viewport.width()-8,10))
-QTest.qWait(QApplication.doubleClickInterval()+40)
+QTest.mouseDClick(window.viewport,Qt.MouseButton.LeftButton,pos=QPoint(window.viewport.width()-8,10))
+from PyQt6.QtCore import QElapsedTimer
+wait=QElapsedTimer(); wait.start()
+while window.selected and wait.elapsed()<3000: QTest.qWait(25)
 assert not window.selected
 window.undo(); window.undo(); assert not window.document.dirty
 window.viewport.zoom=2; window.viewport.pan=QPoint(20,20)
 window.reset_view()
-assert window.viewport.camera is None and window.viewport.zoom==1 and window.viewport.pan.x()==0
-assert window.windowTitle()=='CrystalX'
-assert window.file_menu_bar.actions()[0].text()=='文件'
+assert window.viewport.camera_point(window.document.structure.lattice[2])[1]>0 and window.viewport.zoom>0 and abs(window.viewport.pan.x())<1e-6
+assert shell.windowTitle()=='CrystalX'
+assert shell.file_menu_bar.actions()[0].text()=='文件'
+assert shell.mask().isEmpty()
+assert shell.title_bar.mapTo(shell,QPoint()).x()>0
 assert len(window.viewport.atoms)>len(window.document.structure.elements)
-assert window.title_bar.undo_button is window.buttons['撤销']
-for button in [window.title_bar.minimize,window.title_bar.maximize,window.title_bar.close_button]:
+assert shell.title_bar.undo_button is window.buttons['撤销']
+for button in [shell.title_bar.minimize,shell.title_bar.maximize,shell.title_bar.close_button]:
     assert button.isVisible() and not button.icon().isNull()
     pixels=button.icon().pixmap(18,18).toImage()
     assert any(pixels.pixelColor(x,y).alpha()>0 for x in range(18) for y in range(18))
-window.title_bar.minimize.click(); app.processEvents(); assert window.isMinimized()
-window.showNormal(); app.processEvents()
-window.title_bar.toggle_maximize(); app.processEvents(); assert window.isMaximized()
-window.title_bar.toggle_maximize(); app.processEvents(); assert not window.isMaximized()
+shell.title_bar.minimize.click(); app.processEvents(); assert shell.isMinimized()
+shell.showNormal(); app.processEvents()
+shell.title_bar.toggle_maximize(); app.processEvents(); assert shell.isMaximized()
+shell.title_bar.toggle_maximize(); app.processEvents(); assert not shell.isMaximized()
+assert len(window.view_buttons)==7
+window.perspective_slider.setValue(50); assert window.viewport.perspective==.5
+window.perspective_slider.setValue(0)
+from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtCore import QPointF
+spin=window.translation[0]; before=spin.value()
+event=QWheelEvent(QPointF(5,5),QPointF(5,5),QPoint(),QPoint(0,120),Qt.MouseButton.NoButton,Qt.KeyboardModifier.NoModifier,Qt.ScrollPhase.NoScrollPhase,False)
+QApplication.sendEvent(spin,event); assert spin.value()==before
+window.pick(0)
+window.copy_image(); image=QApplication.clipboard().image()
+assert not image.isNull() and image.hasAlphaChannel() and image.pixelColor(0,0).alpha()==0
+assert window.atom_list.itemWidget(window.atom_list.topLevelItem(0),3).isChecked()
+window.viewport.open_display_style(); app.processEvents()
+style=window.viewport.style_dialog
+assert style.tabs.count()==3
+assert style.windowFlags() & Qt.WindowType.FramelessWindowHint
+assert style.mask().isEmpty()
+from crystalx.dialogs import QFileDialog as AppFileDialog
+from PyQt6.QtWidgets import QFileDialog as NativeFileDialog,QWidget
+assert AppFileDialog is NativeFileDialog
+assert all(child.mask().isEmpty() for child in style.findChildren(QWidget))
+
+app.processEvents(); style.grab().save(str(Path(__file__).resolve().parents[1]/'output/display-style-preview.png'))
+page_rect=style.tabs._stack.geometry()
+style.tabs.setCurrentIndex(1); app.processEvents()
+assert style.tabs._stack.geometry()==page_rect
+style.grab().save(str(Path(__file__).resolve().parents[1]/'output/display-style-atoms.png'))
+style.resize(560,430); app.processEvents()
+assert style.mask().isEmpty()
+style.grab().save(str(Path(__file__).resolve().parents[1]/'output/display-style-resized.png'))
+style.tabs.setCurrentIndex(0)
+
+style.cell_visible.setChecked(False); style.radius_scale.setValue(.7); style.apply()
+assert not window.viewport.appearance['cell_visible']
+assert window.viewport.appearance['radius_scale']==.7
+style.cell_visible.setChecked(True); style.radius_scale.setValue(1); style.apply(); style.close()
+preview=window.cell_preview
+old=(preview.yaw,preview.pitch)
+QTest.mousePress(preview,Qt.MouseButton.LeftButton,pos=QPoint(50,40))
+QTest.mouseMove(preview,QPoint(60,50)); QTest.mouseRelease(preview,Qt.MouseButton.LeftButton,pos=QPoint(60,50))
+assert (preview.yaw,preview.pitch)!=old
 dialog.hide()
 app.processEvents()
 output=Path(__file__).resolve().parents[1]/'output'; output.mkdir(exist_ok=True)
-assert window.grab().save(str(output/'workspace-preview.png'))
-window.close()
+assert shell.grab().save(str(output/'workspace-preview.png'))
+shell.close()
 print('UI integration checks passed')
