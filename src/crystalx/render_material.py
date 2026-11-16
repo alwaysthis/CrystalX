@@ -4,6 +4,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt,QPointF
 from PyQt6.QtGui import QColor,QPen,QLinearGradient,QPolygonF
 from .appearance import ROOT
+from .native_backend import kernels
 from .material_math import LIGHT,HALF,surface_shader,to_linear,to_srgb
 RADII=json.loads((ROOT/'config/default/atomic-radii.json').read_text(encoding='utf-8'))['radii']
 LINE_STYLES=[Qt.PenStyle.SolidLine,Qt.PenStyle.DashLine,Qt.PenStyle.DotLine,Qt.PenStyle.DashDotLine,Qt.PenStyle.DashDotDotLine]
@@ -18,13 +19,21 @@ def material_brush(start,end,color,width,roughness,ior,gloss):
     delta=end-start; length=math.hypot(delta.x(),delta.y())
     normal=QPointF(-delta.y(),delta.x())/max(length,1e-9)*width/2
     gradient=QLinearGradient(start-normal,start+normal)
-    shader=surface_shader(roughness,ior,gloss); screen_normal=normal/max(width/2,1e-9); linear=[to_linear(v) for v in color.getRgbF()[:3]]
+    screen_normal=normal/max(width/2,1e-9); rgb=color.getRgbF()[:3]
+    colors=(kernels.cylinder_colors(screen_normal.x(),screen_normal.y(),*rgb,roughness,ior,float(gloss))
+            if kernels is not None else python_cylinder_colors(screen_normal.x(),screen_normal.y(),rgb,roughness,ior,gloss))
+    for i,value in enumerate(colors): gradient.setColorAt(i/32,QColor.fromRgbF(*value))
+    return gradient
+
+def python_cylinder_colors(normal_x,normal_y,rgb,roughness,ior,gloss):
+    shader=surface_shader(roughness,ior,gloss); linear=[to_linear(v) for v in rgb]; colors=[]
     for i in range(33):
-        t=-1+2*i/32; nz=math.sqrt(max(0,1-t*t)); nx,ny=screen_normal.x()*t,-screen_normal.y()*t
+        t=-1+2*i/32; nz=math.sqrt(max(0,1-t*t)); nx,ny=normal_x*t,-normal_y*t
         nl=nx*LIGHT[0]+ny*LIGHT[1]+nz*LIGHT[2]; nh=nx*HALF[0]+ny*HALF[1]+nz*HALF[2]
         diffuse,spec=shader(nl,nz,nh)
-        gradient.setColorAt(i/32,QColor.fromRgbF(*(to_srgb(v*diffuse+spec) for v in linear)))
-    return gradient
+        colors.append(tuple(to_srgb(v*diffuse+spec) for v in linear))
+    return colors
+
 
 def segment(p,start,end,color,width,line=0,roughness=.3,ior=1.5,gloss=True):
     if line==5:

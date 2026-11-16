@@ -2,6 +2,7 @@
 from functools import lru_cache
 import math
 from PyQt6.QtGui import QImage,QPainter,QColor
+from .native_backend import kernels
 from .material_math import LIGHT,HALF,surface_shader,to_linear,to_srgb
 
 @lru_cache(maxsize=1)
@@ -20,6 +21,12 @@ def _lighting():
 
 @lru_cache(maxsize=128)
 def sphere_image(rgb,roughness=.3,ior=1.5,gloss=True):
+    if kernels is not None:
+        pixels=kernels.sphere_pixels(*rgb,roughness,ior,float(gloss))
+        return QImage(pixels,128,128,512,QImage.Format.Format_ARGB32_Premultiplied).copy()
+    return python_sphere_image(rgb,roughness,ior,gloss)
+
+def python_sphere_image(rgb,roughness=.3,ior=1.5,gloss=True):
     size=128; pixels=bytearray(size*size*4)
     linear=[to_linear(v) for v in reversed(rgb)]; shader=surface_shader(roughness,ior,gloss)
     # ARGB32 stores bytes in BGRA order on the supported Windows desktops.

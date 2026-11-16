@@ -11,3 +11,7 @@ config/custom/*
 !config/custom/.gitkeep
 output/
 *.lnk
+
+# Local compiled acceleration modules
+*.pyd
+*.so

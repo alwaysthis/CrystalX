@@ -1,10 +1,12 @@
 # CrystalX
 
+> **Agent 必读：编程前必须完整阅读并学习 [`.memory/`](.memory/) 文件夹中的全部文档，遵守其中的设计原则与代码规范。完成修改后，必须更新相关项目记忆及 [`CHANGELOG.md`](CHANGELOG.md)；更新日志按从新到旧排列，最新记录放在顶部。**
+
 A Python/PyQt6 desktop application for crystal structure visualization, interactive editing, and VASP POSCAR file generation.
 
 CrystalX 是一款基于 Python 与 PyQt6 的晶体结构可视化与编辑软件，支持 VASP 结构文件读写、周期边界显示、原子选择、几何变换、超胞构建及撤销／重做，采用简洁的浅色桌面界面。
 
-**状态：早期开发版本（Early Development），当前版本 0.10.0。**
+**状态：早期开发版本（Early Development），当前版本 0.19.0。**
 
 ![CrystalX 工作台](docs/workspace-preview.png)
 
@@ -130,3 +132,8 @@ python -m venv .venv
 原子颜色默认按元素显示，直接点击色块即可修改当前作用范围内的颜色；半径可选原子、离子、范德华类型，也可直接改当前数值。修改不会写回默认元素颜色或半径表。
 
 球体、圆柱与立体方向轴采用GGX/Smith与Fresnel表面反射：粗糙度改变高光宽度，IOR改变反射强度。其参数含义参考[Blender Principled BSDF](https://docs.blender.org/manual/en/3.6/render/shader_nodes/shader/principled.html)，当前仍为单光源不透明表面的投影近似。运行 scripts/render_material_comparison.py 可生成材质对照图。
+
+
+## 0.19.0 C++ 加速
+
+球体、圆柱与立体箭头的材质计算及周期成键搜索支持可选 C++ 加速，保留原有缓存与 Python 回退。没有编译模块也可正常启动，不需要在首次启动时编译。构建、禁用方法与实测结果见 [C++ 内核说明](docs/native-kernels.md)。

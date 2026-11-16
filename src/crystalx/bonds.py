@@ -10,6 +10,7 @@ DEFAULT_RANGES=json.loads((Path(__file__).resolve().parents[2]/'config/default/b
 def pair_key(a,b): return '-'.join(sorted((a,b)))
 from .structure import cartesian, dot
 from .display_geometry import reciprocal
+from .native_backend import kernels
 
 
 def clip_segment(a, b):
@@ -25,7 +26,7 @@ def clip_segment(a, b):
     return tuple(tuple(x+t*(y-x) for x,y in zip(a,b)) for t in (low,high))
 
 
-def automatic_bonds(structure, ranges=None, *, matched_ranges=None):
+def python_automatic_bonds(structure, ranges=None, *, matched_ranges=None):
     """Search only configured element pairs, using distance bounds in angstrom.
 
     Defaults use VESTA 3.5.8 element-pair limits; missing pairs have no fallback.
@@ -66,4 +67,35 @@ def automatic_bonds(structure, ranges=None, *, matched_ranges=None):
                 if token in seen: continue
                 seen.add(token)
                 result.append((cartesian(clipped[0],structure.lattice),cartesian(clipped[1],structure.lattice),source,target))
+    return result
+
+
+def automatic_bonds(structure, ranges=None, *, matched_ranges=None):
+    """Use optional batch C++ search, preserving Python rounding and result order."""
+    if kernels is None:
+        return python_automatic_bonds(structure,ranges,matched_ranges=matched_ranges)
+    ranges=DEFAULT_RANGES if ranges is None else ranges
+    species=set(structure.elements)
+    active={key:bounds for key,bounds in ranges.items() if set(key.split('-'))<=species and bounds}
+    cutoff=max((high for bounds in active.values() for low,high in bounds),default=0.)
+    if cutoff<=0: return []
+    ids={element:index for index,element in enumerate(sorted(species))}
+    rules=[]; names=[]
+    for pair,bounds in active.items():
+        parts=pair.split('-')
+        if len(parts)!=2 or pair_key(*parts)!=pair: continue
+        a,b=parts
+        for low,high in bounds:
+            rules.append((ids[a],ids[b],low**2,high**2)); names.append((pair,low,high))
+    margin=[cutoff*sqrt(dot(v,v)) for v in reciprocal(structure.lattice)]
+    positions=[[v%1 for v in point] for point in structure.positions]
+    candidates,matched=kernels.bond_candidates(structure.lattice,positions,
+        [ids[e] for e in structure.elements],rules,margin,cutoff)
+    if matched_ranges is not None: matched_ranges.update(names[i] for i in matched)
+    result=[]; seen=set()
+    for a,b,source,target in candidates:
+        token=tuple(sorted(tuple(round(v,8) for v in p) for p in (a,b)))
+        if token in seen: continue
+        seen.add(token)
+        result.append((cartesian(a,structure.lattice),cartesian(b,structure.lattice),source,target))
     return result

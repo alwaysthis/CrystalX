@@ -155,3 +155,11 @@ Qt QColorLuminancePicker源码paintEvent的eraseRect在指针侧留白，单改Q
 
 ## 0.18.1 连续光泽与IOR范围
 原子、晶胞圆柱及立体方向轴的光泽由开关改为0–1连续高光权重，默认1保持旧外观，0关闭高光；参与Fresnel反射权重及材质缓存，粗糙度仍独立控制宽度。旧布尔预设按False→0、True→1兼容读取。IOR保留1–3、默认1.5，UI提示说明其为常用非金属表面反光参数，非真实原子折射率或透射模拟。参考Blender官方Principled文档常见IOR约1–2且允许更高值。33项领域测试及显示集成检查通过。
+
+## 2026-11-16 内核迁移评估（尚未接入生产）
+新增 scripts/assess_kernels.py，测量完整周期成键、材质冷/热缓存及视口；独立 C++ 材质探针 native_material_probe.cpp，通过 ctypes 端到端测量，无新增运行依赖。45组参数像素差0；交替采样 Python94.85ms/C++28.16ms，约3.37倍，仅指首次球体生成。硅512/4096原子成键117.72/1178.85ms；短轴/倾斜与混合元素另测。旋转不重算成键且球体新增缓存miss为0，不能宣称内核迁移解决旋转卡顿。成键尚无C++试验，不给加速倍数。建议材质先、成键后，保留Python参考/回退，核对周期边界、去重及多段匹配语义。完整报告及原始样本位于 docs/performance/2026-11-16-*；探针DLL和profiles仅output。33项领域测试通过。
+
+## 0.19.0 C++已接入（覆盖上文尚未接入说明）
+球体、圆柱/箭头采样及成键候选计算已接入native/纯C++17内核，通过CPython自带C API绑定，无pybind11运行/构建依赖。setup.py build_ext --inplace明确构建，普通安装不需编译；构建wheel可设置CRYSTALX_BUILD_NATIVE=1。native_backend检查API_VERSION=2，模块缺失/加载失败/不兼容回退，实际计算错误不静默吞掉；CRYSTALX_DISABLE_NATIVE=1在进程启动时禁用。计算段释放GIL但仍同步，非UI异步。
+保留python_sphere_image、python_cylinder_colors、python_automatic_bonds。C++成键只做候选/裁剪，Python仍按round(v,8)去重并转换输出，保证顺序/源ID/规则匹配；极小负数%1可为1.0，边界已兼容。MSVC /fp:strict，不使用fast-math。Qt图像/渐变/绘制及缓存不搬迁。
+本机Windows x64/CPython3.14/MSVC14.38编译并实际启用，最终配对中位数球体55.69→4.47ms(12.46x)，100圆柱27.23→11.80ms(2.31x)，512原子成键183.78→37.40ms(4.91x)，4096原子1587.99→423.68ms(3.75x)，负载有波动不保证固定倍数。41项原生测试及六组界面检查通过；禁用时35项通过、6项原生专用跳过。docs/native-kernels.md记录接口/构建/限制；docs/performance/2026-11-16-native-samples.json保留原始样本。编译产物不入Git，其他平台和Python版本需另行构建验证。

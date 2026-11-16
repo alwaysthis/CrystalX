@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crystalx"
-version = "0.18.1"
+version = "0.19.0"
 description = "Crystal structure visualization and editing desktop application"
 requires-python = ">=3.10"
 dependencies = ["PyQt6>=6.6,<7", "gemmi>=0.7,<0.8"]
