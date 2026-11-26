@@ -152,11 +152,17 @@ def apply_menu_theme(menu):
 
 from pathlib import Path as _Path
 _assets=(_Path(__file__).resolve().parents[2]/'assets').as_posix()
+CHECKBOX_SIZE=16
+CHECKBOX_STYLE = """
+QCheckBox::indicator,QAbstractItemView::indicator,QMenu::indicator {width:16px;height:16px;border:1px solid #344f3f;border-radius:3px;background:#fff;image:none;}
+QCheckBox::indicator:hover,QAbstractItemView::indicator:hover {border-color:#173d28;background:#edf3ef;}
+QCheckBox::indicator:checked,QAbstractItemView::indicator:checked,QMenu::indicator:checked {image:url("""+_assets+"""/check.svg);background:#e0ebe4;}
+QCheckBox::indicator:indeterminate,QAbstractItemView::indicator:indeterminate,QMenu::indicator:indeterminate {image:url("""+_assets+"""/partial.svg);background:#fff;}
+QCheckBox::indicator:disabled,QAbstractItemView::indicator:disabled,QMenu::indicator:disabled {border-color:#9ba99f;background:#f0f3f1;}
+"""
+CONTROLS += CHECKBOX_STYLE
+MENU_STYLE += CHECKBOX_STYLE
 CONTROLS += """
-QCheckBox::indicator,QAbstractItemView::indicator {width:14px;height:14px;border:1px solid #526c5d;border-radius:3px;background:#fff;}
-QCheckBox::indicator:hover,QAbstractItemView::indicator:hover {border-color:#203f2d;background:#edf3ef;}
-QCheckBox::indicator:checked,QAbstractItemView::indicator:checked {image:url("""+_assets+"""/check.svg);background:#e0ebe4;}
-QCheckBox::indicator:indeterminate,QAbstractItemView::indicator:indeterminate {image:url("""+_assets+"""/partial.svg);background:#fff;}
 QAbstractSpinBox[pendingEdit="true"],QAbstractSpinBox[pendingEdit="true"]:focus {background:#fde5e5;}
 """
 

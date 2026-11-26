@@ -51,6 +51,7 @@ class LuminanceSurface(QObject):
 COLOR_TEXT={'Basic colors':'基本颜色','Custom colors':'自定义颜色','Pick Screen Color':'屏幕取色','Add to Custom Colors':'添加到自定义颜色','Hue:':'色相：','Sat:':'饱和度：','Val:':'明度：','Red:':'红：','Green:':'绿：','Blue:':'蓝：','Alpha channel:':'透明度：','HTML:':'十六进制：','Select Color':'选择颜色','Cursor at %1, %2\nPress ESC to cancel':'光标位置：%1，%2\n按 Esc 取消取色'}
 
 from PyQt6.QtCore import QTranslator
+COLOR_TEXT['Basic colors']='预设颜色'
 class ColorTranslator(QTranslator):
     def isEmpty(self): return False
     def translate(self,context,sourceText,disambiguation=None,n=-1):
@@ -63,6 +64,10 @@ class QColorDialog(QtColorDialog):
         from PyQt6.QtGui import QColor,QPalette
         from PyQt6.QtWidgets import QWidget,QLabel,QPushButton,QApplication
         from .theme import CONTROLS,stepper_css
+        import json
+        from pathlib import Path
+        colors=json.loads((Path(__file__).resolve().parents[2]/'config/default/plot-colors.json').read_text(encoding='utf-8'))
+        for index,color in enumerate(colors): QtColorDialog.setStandardColor(index,QColor(color))
         app=QApplication.instance()
         if not hasattr(app,'_crystalx_color_translation'):
             app._crystalx_color_translation=ColorTranslator(app); app.installTranslator(app._crystalx_color_translation)

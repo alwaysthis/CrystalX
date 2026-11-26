@@ -3,6 +3,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMenu,QCheckBox,QWidgetAction
 from .theme import apply_menu_theme
 
+from .math_ui import MathCheckBox as QCheckBox, MathMenu as QMenu
+
 class VisibilityCheck(QCheckBox):
     def nextCheckState(self):
         self.setCheckState(Qt.CheckState.Unchecked if self.checkState()==Qt.CheckState.Checked else Qt.CheckState.Checked)

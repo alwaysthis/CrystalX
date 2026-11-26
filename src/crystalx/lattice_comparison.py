@@ -9,6 +9,8 @@ from .structure import cartesian,fractional,dot
 from .view_orientation import standard_orientation
 
 
+from .math_ui import MathLabel as QLabel, MathToolButton as QToolButton
+
 def corners(basis): return [cartesian(p,basis) for p in product((0,1),repeat=3)]
 
 class HelpButton(QToolButton):

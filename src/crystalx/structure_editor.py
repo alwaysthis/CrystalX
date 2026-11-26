@@ -15,6 +15,8 @@ from .table_controls import CenteredCheckDelegate
 
 IDENTITY=[[1,0,0],[0,1,0],[0,0,1]]
 
+from .math_ui import MathLabel as QLabel, MathPushButton as QPushButton, MathTableWidget as QTableWidget
+
 class StructureEditor(QDialog):
     def __init__(self,page):
         super().__init__(page); self.page=page; self.snapshot=None; self.mode=0; self.pending=False; self.preview=None; self.staging=False

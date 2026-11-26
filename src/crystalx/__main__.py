@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -21,11 +22,15 @@ def main() -> int:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('CrystalX.Desktop')
         app = QApplication(sys.argv)
+        from .runtime import RuntimeDiagnostics
+        diagnostics=RuntimeDiagnostics(app,ROOT/'logs')
         from .ui import MainWindow
         window = MainWindow(config)
         window.show()
-        logging.info("Application started")
-        return app.exec()
+        logging.info("Application started (PID %s, Python %s)",os.getpid(),sys.version.split()[0])
+        try:
+            code=app.exec(); logging.info('Application exited normally: %s',code); return code
+        finally: diagnostics.close()
     except Exception:
         logging.exception("Application failed")
         raise

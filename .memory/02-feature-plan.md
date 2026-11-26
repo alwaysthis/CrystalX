@@ -1,5 +1,148 @@
 # 关键功能设计计划
 
+## 0.34.0 膜厚独立标记及崩溃诊断
+
+ThicknessDialog.show_marks在波长来源行右侧，初始无标记时关闭；sync_marks读已勾选的有效x/order，自动模式按x排序编号，手动级次保留。曲线新增thickness_marks list[{x,order}]，独立于points/peaks/peak_analysis；样式replace保持，MIME校验有限x/整数级次并携带，settings/preset排除。scientific_figure按当前display_y在x处插值，蓝色空心圆+级次/峰位注释，data.thickness_annotations保存artist用于核验，隐藏曲线同步隐藏，log/sqrt非正过滤。表格加载后一次同步，编辑/勾选/删除同步，关闭dialog保留；重开从可见标记恢复，非连续手动级次自动切换手动模式。开关关闭只清本组，不动其他标记。
+
+用户报告刚崩溃且忘记操作。只读Windows应用日志确认2026-11-23 01:18:49 pythonw.exe/ucrtbase.dll 0xc0000409，pid0x3018，WER01:18:59；已有crystalx.log只记启动01:14:07，无Python异常，WER临时dump已不可获取，不能认定历史触发点。独立异常回调测试复现prepare(QMessageBox)→install_dialog_chrome引用已删除QGridLayout：Qt在setWindowFlag/setStyleSheet/setSizeGripEnabled后重建原生布局，修复为变更后重新读取dialog.layout。色彩对话框亦回归通过。
+
+runtime.RuntimeDiagnostics于QApplication后安装sys.excepthook/threading.excepthook/Qt消息处理；主回调异常写完整traceback并异步显示主题中文非模态提示，不执行默认未处理abort路径；线程异常写日志。eventFilter只记按钮释放/对话框开关/上下文菜单，无鼠标移动或输入内容。faulthandler打开logs/crash.log保留句柄、进程/时间标识、all_threads，退出恢复hooks并关闭，main日志含PID/Python版本和正常退出。原生致命错误只能记录不能恢复，不宣称已修复历史所有闪退。
+
+101项单元测试（含新独立标记剪贴板），check_xrr_thickness验证表格选中/取消/开关独立及artist数；check_runtime_stability在真实Qt单次回调注入异常，确认有traceback/中文提示且主程序继续，然后三轮主窗口/膜厚编辑与标记/极小尺寸/终端切换/文件信息/背景弹窗/scan切换/tab删除及延迟事件无新异常，并验证faulthandler堆栈文件。100%及150%通过，既有color dialog和全部领域回归通过。测试用临时日志，不污染用户正式日志。
+
+## 0.33.0 XRR条纹膜厚计算
+
+XrdPage在scan.template_name=='XRR'显示thickness_button，图标film_thickness透明SVG，点击ThicknessDialog；其他XRD/RC/AFM隐藏。切换扫描销毁旧计算窗，曲线选择独立，不改变主图曲线/峰/视野。窗口含曲线、轴类型、波长、搜索范围、可选临界角、连续级次checkbox、峰表及结果，原生保存CSV。读取现有峰优先当前PeakFindingDialog同曲线结果连续x，否则curve.peak_position；读取标点用源x。修改后结果失效，q列清空，自动级次不可编辑，手动级次支持漏峰间隔。
+
+xrr_thickness.py Qt无关：estimate_thickness按2theta/2或theta（度）转换qz=4pi sin(theta)/lambda，q_a直接用Å^-1，q_nm除10；可选qc临界角后q'=sqrt(q²-qc²)，要求峰在临界角之上。无显式orders按q排序连续编号，显式orders须整数并随q递增；至少2个峰，禁止重复/非有限。回归q与级次，t_nm=2pi/slope/10，三峰以上用回归斜率标准误传播，intervals_nm含每对级次间隔；两峰无误差统计，R²不作为有效诊断显示。临界角未自动推断，缺波长明确提示CuKα₁1.5406Å备用；metadata支持Angstrom/A/Å和nm换算，实际文件读取1.540593Å。
+
+detect_fringe_maxima在选定正强度范围均匀插值logI，小高斯去噪与宽高斯去包络，find_peaks初始prominence .04，局部高频MAD抑制异方差噪声、前5个候选典型宽度筛过窄伪峰。只提供候选，用户须确认连续同类峰；间距相对离散>15%提示噪声/漏峰/多周期。没有自动宣称单层物理厚度或已排除多层。默认搜索去掉最前10%范围，可改；全部计算不依赖图的log显示或背景扣除，保持源数组。
+
+100项单元测试含已知50nm的θ/2θ/q单位、下降顺序、漏峰与临界角、无效输入/单位元数据、60nm合成衰减条纹。check_xrr_thickness真实按钮、级次编辑/勾选/非法输入/导出/入口隔离，合成自动估计59.9784nm；实际XRR_1在用户可改0.9–2.8°范围候选6个、估计34.3010nm为演示，未确认实物厚度。100%/150%通过，截图output/xrr-thickness-real.png/synthetic.png。Qt布局时画布可能短暂1px，XrdPlot.rebuild在fit_plot前后跳过<32px绘制，避免make_figure负轴区域；后续resize正常重绘。公式依据SasView Kiessig calculator（README链接），原数据只读不入库。
+
+## 0.32.0 原始数据峰型拟合（覆盖0.31仅平滑轮廓的默认模式）
+
+用户宽峰截图说明7点SG仍跟噪声并在22.13/22.21/22.24等位置误标多峰。新增Qt无关peak_fit.py，不修改原强度；PeakSettings.method加fit，domain默认prominence兼容原API，UI默认fit推荐。fit_model默认split_pv（左右全宽不同），另有pseudo_voigt/gaussian/lorentzian。profile用峰高h[(1-eta)exp(-4ln2*u²)+eta/(1+4u²)]，eta为洛伦兹比例；左右宽度按中心分段，FWHM=(left+right)/2，非Mantid归一化面积参数化。README链接SciPy least_squares与Mantid原文。
+
+种子信号仅用1.5采样点高斯预处理定位，保留prominence>=max(阈值,相对高度10%)、种子宽>=max(用户最小,4采样步)以抑制噪声/欠采样极值。支持区间约±4种子宽及最小6步，按区间左端排序合并重叠组，组内中心排序，最多40候选/每组8峰，过多提示框选/阈值。对原始观测联合拟合分峰+线性基底，x/y归一化、有边界least_squares soft_l1/x_scale=jac，最多600评估。中低动态范围噪声缩放残差，强动态>=1000用sqrt(count/noise²)权重；近候选尝试减分峰，仅BIC改善才接受。R²<.65组不显示，未收敛提示。模型拟合不是普适物相/物理模型判断，无不确定度估计。
+
+Peak附加r2/fitted_y；x为连续模型中心，index仍为最近源采样点，source intensity列不改。fit模式表格/CSV列为拟合峰高、局部R²及FWHM；其他模式原半突出度宽度不变。PeakResult.overlays的smooth存每组400–1600密集模型点（总最多64000），contours为分峰+基底，positions存源index/连续x/总模型y。PlotCurve.peak_position统一峰标记与默认图注，clipboard校验有限值/索引及密集轮廓上限；settings不带分析数据。scientific_figure橙色改连续实线，模型轮廓与图像导出共用；标记不再落在噪声最高源点；拟合标签上移至邻近原始噪声上沿，避免文字与峰顶噪声重叠。
+
+PeakFindingDialog切fit时禁用/取消SG平滑，显示控件名改“显示峰拟合曲线”（默认打开），切非fit仍显示检测平滑；复制/样式/扫描保留分析，clear和扣底信号改变仍使旧分析失效。模型不可靠给出扩大范围/调整阈值建议，峰型/检测参数需开始寻峰提交。
+
+95项单元测试含噪声宽不对称峰单峰/中心/FWHM、四种理想模型、真实可分辨双峰、下降ROI源索引/密集模型剪贴板及非法输入。check_peak_fit_ui覆盖真实默认拟合、模型峰位artist/显示开关不重拟合、FWHM/R²/CSV、样式/复制/导出；100%及150%通过。实际BTO-13-B/rc_44.4378.ras为单主峰，中心22.21331974°、FWHM .34769729°、R² .98464419。实际BTO XRD也检出6候选（阈值118.19136），原文件只读。output/peak-fit-real.png和peak-fit-dialog-real.png已人工核对，原黑线不变，拟合橙线连续且仅一个主峰标记。
+
+## 0.31.1 公式下拉选中态与继承色块
+
+原MathItemDelegate使用系统HighlightedText（白）叠在QComboBox实际浅色选中背景上，且原生focus框变成黑色圆角行框。MathComboBox单独使用MathComboDelegate，普通文字/公式统一白底、选中#dce7df/字#23482f、hover#edf3ef，不绘制原生行内focus框；图标/checkbox保留。其他列表/表格委托不变，FontChoice仍使用自己的CompactRows。popup view明确浅色边框与outline=0，源码/当前值及选择回调不变。
+
+PlotColorButton不再使用QSS dashed rounded border：QPainter抗锯齿1px、1.5px内缩、4px半径，四个完整对称圆弧+每条直边镜像等距虚线，自定义色同尺寸填充，透明为斜线区别继承空框，hover/focus只改边框色不增粗。禁用降低opacity，不使用窗口遮罩。set_color仍发原colorChanged，虚线几何由绘制实现，检查不再搜QSS字符串。
+
+check_plot_control_rendering实际打开两条曲线公式下拉，选中行像素深色文字/浅绿底断言，色块左右镜像误差核验；100%、150%、200%通过，截图output/formula-popup-{1,1.5,2}.png及color-swatches-{1,1.5,2}.png已人工核对。check_background_controls/check_math_and_multiopen/check_plot_curves回归。
+
+## 0.31.0 强峰背景修订、多种寻峰与分析叠加
+
+本节覆盖0.30默认线性AsLS的决定。实际BTO-13_10-110_1.ras在百万计数强峰下，旧背景−5.603871–18.394395、46.47°处18.21019，明显被峰拉高且自然边界有负值。默认auto按ptp/max(median(abs(y)),ptp*1e-9,eps)>=1000选择snip，否则asls，温和斜底保持原精度。SNIP均匀网格最多20000，计数先移动平均（默认x跨度1%全宽），LLS=log1p(log1p(sqrt(counts+1)))、reflect补边、默认半窗跨度2.5%、从大到小递减削峰，再逆变换；非负计数的模型背景约束>=0，不裁切原始或扣底后的数据。新实际背景0.381416–1.065917，46.47°处0.491473。纯SNIP对斜底仍有近似偏差，不能因此声称普适精确。
+
+background.py METHODS auto/snip/median/asls；median先分块均值减计数噪声，宽窗口中位数+高斯平滑，默认全跨度20%。BackgroundDialog由工具栏背景开关右侧无框三点进入，可选曲线/方法/窗口/预平滑，apply显式重算。字段名window_width，不覆盖QWidget.width()。PlotCurve.background_settings随曲线/复制保留，settings/preset不带；外部字段类型/键和值校验。set_background返回当前强度是否改变：仅隐藏背景不清分析，扣底开关变化或已扣底时重算背景才清峰/叠加及旧寻峰表。
+
+PeakSettings新增method(prominence/derivative/wavelet)、wavelet_min/max（横轴尺度非FWHM）。突出度find_peaks；derivative在均匀x网格高斯平滑sigma=max(.5,window/6)后计算实际x梯度正→负过零，映回近邻峰；CWT用SciPy find_peaks_cwt（最多32个对数间隔尺度，默认2..min(50,n/20)采样点、min_snr=2），在均匀x检测后映射到原数据局部峰。共享突出度/间距/半突出度宽度筛选及FWHM，ROI与下降源索引保持。依据SciPy官方find_peaks_cwt和pybaselines官方SNIP/LLS文档，README链接原文；无新依赖。
+
+PeakResult.overlays缓存contours（检测信号/端点局部基底的XY）与smooth（实际检测信号，另存每峰ranges）；contour范围取prominence bases与±3FWHM的交集，非峰型拟合。对话框三个独立显示开关，show_smooth在未平滑时启用SG并重跑，关闭SG亦关闭平滑显示。PlotCurve.peak_analysis持有可见叠加，scientific_figure统一绘制淡填充/虚线轮廓、橙色点划线平滑峰，只画峰邻域，不进入图例；export保留，clipboard校验/携带，settings/preset排除。clear_marks清峰及分析但保留手工点；改变参数需开始寻峰提交结果。
+
+90项单元测试，包括三法高斯定位/FWHM、ROI/下降/平滑源索引、百万峰背景抗污染、分析剪贴板/非法输入。check_peak_methods_ui覆盖真实下拉/三开关/显示平滑自动重跑、样式保存与图例隔离、背景设置/扣底失效/隐藏不清、复制/透明导出，100%与150%通过。实际RAS突出度200时三法候选数6/6/5，非自动阈值对比，不代表物相判断；新背景范围已验证非负且<2。check_strong_peak_background生成output/xrd-background-comparison.png，另有peak-methods-real.png/peak-overlays-real.png；只读研究文件，不复制原数据入仓库。
+
+## 0.30.0 25pt模板、直接色块、FWHM及背景处理
+
+default/plot.json与default/plot-templates五模板general.size=25，显式轴/图例size或label_size也统一25，0继承保留；按用户“每个模板”要求仅修改本机custom/plot-templates/XRD.json字号，其余设置保留，custom不纳入Git。PlotColorButton直接选色，继承''/auto为灰色虚线28px空块，右键恢复默认、marker可none透明；无mode/custom下拉。FontChoice继承值''空项、数值继承0显示空白，序列化哨兵不变。旧检查已改用set_color，不保留虚假的旧模式控件。
+
+Peak新增fwhm独立于width。half_maximum_width用SciPy prominence左右bases构建局部线性基底，扣底后从峰向两侧找半高包围点，在实际x插值，返回全宽；截断/不可靠交点None。不是把原半突出度宽度换名字，也不是非线性峰型拟合；重叠峰有局限。PeakFindingDialog六列含FWHM、CSV五数据列，原始强度字段仍从curve.y源索引读取；检测/ROI使用display_y，平滑仅影响检测信号。依据SciPy官方peak_widths（半突出度非FWHM）和Eilers/Boelens 2005 AsLS文章（README有原文链接）。
+
+background.fit_background独立Qt，严格单调/有限XY，下降映回原序；均匀x插值最多3000点，二阶差分惩罚AsLS，lambda=1e6*(n/1000)^4、p=.001、最多30次稀疏求解，最后映回原采样；背景估计不承诺物理模型，端点自然边界可有偏差。PlotCurve保存background/show_background/subtract_background，display_y派生原y减背景，不改原数组。scientific_figure/selection/hover/标点/重置范围/峰检测统一display_y；背景虚线不进图例，扣底时参考线为0，对数mask非正数。apply_style改dataclasses.replace保留处理状态，clipboard含背景并校验形状/数值/布尔，settings/preset不含背景。
+
+XrdPage居中工具栏两checkbox，XRD类含XRR/RC显示，AFM/XY不显示；各曲线分别缓存，当前选择否则首条，selection_changed同步且blockSignals避免重入。show/subtract独立，subtract可直接计算背景。切换处理清旧峰标记与已开寻峰结果，保留手工点和原数据，重算显示范围。切换扫描恢复状态，复制保留处理和数据，粘贴样式仍继承目标。
+
+85项单元测试含高斯FWHM、倾斜底、非等距/下降、无效输入、常值底与背景剪贴板；check_background_controls真实开关、图线数组/源数据、样式保留/直接取色/空框、FWHM CSV、扫描隔离、逐曲线切换及导出，截图direct-plot-colors.png/background-corrected.png。背景估计误差容许自然端点偏差，不将平滑基底声明精确物理背景。已有曲线/论文/峰/视野和模板检查通过。
+
+## 0.29.2 单行公式预览与取消曲线选择
+
+QTextDocument.adjustSize默认会给长文字计算折行宽度，随后draw_text按控件高度缩放整段，导致截图里的图例名称/当前曲线文字变成两行小字。document在width=None时设置QTextOption.NoWrap，指定width的wordWrap标签保持可换行；MathLineEdit和MathComboBox非编辑态预览将源码换行视觉转为空格，按单行裁切，不修改原字符串。check_math_and_multiopen增加O2/800℃长混合文字lineCount==1及原文不变，截图已核对。
+
+XrdPlot单击图内空白select_curve(None)，键盘Esc同样取消并清hover/readout；手动框选模式Esc仍优先cancel_peak_selection。拖动平移不取消，单击曲线继续标点；双击空白原重置视图不变。check_curve_selection_style真实鼠标点击和Esc断言选择清空、bounds及曲线样式不变。
+
+## 0.29.1 曲线选择不遮挡实际样式
+
+截图中第二条曲线的黄橙色来自CurveSelection连续2.5px橙色覆盖，并非Matplotlib未更新：apply_style及legend_handles使用相同真实颜色。改为可见范围内最多12个5px半径无填充灰绿空心圈，近点去重，不再重画整条线，颜色/线宽/线型可直接检查，选择仍不进入导出。图例色线随曲线，图例文字由legend.color或general.color独立控制，默认黑色，未擅自改为曲线色。
+
+check_curve_selection_style实际新增并选中第二曲线，通过样式弹窗红→紫→绿重复应用、线宽、首曲线隔离、legend_handles颜色、屏幕源点附近实际颜色像素、选择不入透明导出及隐藏/恢复；截图output/selected-curve-style.png。新增数据后原bounds保持不变，测试主动reset纳入新数据，以免把范围外曲线误判为颜色缺失。
+
+## 0.29.0 显式数学语法、目标图继承与多选打开
+
+本节覆盖旧版0.28的无$自动识别规则，以及早期曲线复制时物化源颜色/线宽的决定。math_syntax统一仅匹配完整`$...$`/`$$...$$`，math_label不再隐式包装反斜杠或上下标。Mathtext数学子集，非任意LaTeX宏包引擎。math_ui共享MathLabel/LineEdit/ItemDelegate/HeaderView/Table/Tree/List/Combo/Push/Tool/Check/PlainTextEdit/Menu，组件无公式时走原Qt绘制；焦点编辑源码，失焦预览，未完成/非法公式显示原文。formula_image LRU256透明PNG，按DPI渲染，QTextDocument混排；自绘工作区tab、原子标签、曲线hover亦复用。原生文件选择器/颜色对话框内部Qt类不替换，dialog_chrome使用QtPushButton识别原生按钮。HelpButton有text类属性，MathToolButton必须用基类QToolButton.text(self)，避免Qt回调异常退出。
+
+PlotCurve.clipboard不再物化源图通用值，paste_curve调用inherit_plot_appearance将color=''、width=0、非none的face/edge='auto'，保留数据、图例名、线型/marker/size、标点/峰/图注。目标通用颜色/宽度更新曲线与legend，源对象不变，目标bounds不变；之后可在目标曲线页独立编辑。
+
+MainWindow.open_file原生getOpenFileNames→load_paths；load_path(report_errors=False)收集失败并在批量结束汇总，不阻断后续成功文件。混合结构/XRD/AFM独立tab，SessionState记录最后成功路径。添加曲线亦多选，全部扫描依次加入；取消/失败不更新目录。80项单元测试及check_math_and_multiopen、check_ui、check_visibility_editing等交互检查；数学预览截图output/math-widgets-dollar-rule.png，源码不改写，源文件不入库。
+
+## 0.28.0 居中分析、手动范围与文件信息
+PlotHeader独立排布左文件按钮/中央分析/右图片工具，分析中心不受两侧宽度影响；空间不足转两行，仍居中且不重叠。顶部手动寻峰/自动寻峰/三点：自动run=True在显示前执行整曲线；手动start_peak_selection进入矩形模式，左键拖动，松开将像素框经transData反变换成原始XY区间并运行，同一PeakFindingDialog显示结果。Esc取消；框选中不平移/标点，滚轮冻结；绿色半透明矩形在Qt overlay内，不进入导出。反变换适用于log/sqrt。边界少于3点提示，框选需含两侧背景。
+detect_peaks增加region，先按X区间保留索引，再处理降序、检测及原始Y范围过滤；Peak.index始终指完整源曲线。窗口显示范围，scope变化清旧结果，自动恢复全曲线；三点只打开现有窗口不自动运行，保留参数/标记开关及结果，曲线名刷新。手动结果替换该曲线自动标记，手工点独立保留。切换扫描关闭寻峰窗。
+math_label增加无$上下标识别，如I_{001}/x^2，仍为Mathtext LaTeX子集。PlotCurve.point_labels字典存源索引自定义图注，手工点和寻峰标记均可双击文字进入PointLabelEditor，验证/试绘后提交；data.point_annotations保存artist到源点映射。apply_style/复制/扫描保留，preset不含；剪贴板校验索引和公式，旧payload兼容。清手工点只移除相关图注，不误清自动峰专属文字。
+主界面selector隐藏兼容现有代码，文件信息FileInfoDialog内选择扫描、读取当前模型元信息，不重读研究文件。scan_info Qt无关：XRD/XRR/RC展示点数/范围/步长/扫描模式与时间/速度/仪器/靶材/波长等已有字段；AFM标题AFM高度，按y像素频数加权mean、population variance/std、众数高度、最高频数、weighted median、有效高度范围、Ra、总像素，统计为分箱估计而非二维原始形貌计算；全零频数给出不可统计说明。
+78项单元测试含ROI源索引/降序/XY筛选、加权统计/零频、图注复制/无$上下标；check_peak_workflows真实点击自动、三点、ROI拖拽/Esc、标记开关、图例/手工/自动峰LaTeX双击、文件信息扫描切换、宽窄居中不重叠。实际AFM均值0.048565654nm、方差0.461227132nm²、std0.679137049nm、众数-0.1088nm；原文件不入库。既有XRD/AFM/图例/论文检查通过。
+
+## 0.27.0 XRD寻峰工具栏与候选结果
+XrdPage顶部分析工具栏含寻峰图标+文字，仅data_kind=XRD（含XRD/XRR/Rocking Curve）显示，AFM/XY不显示。PeakFindingDialog中文主题窗，曲线选择、突出度0自动、物理x单位最小间距/最小最大宽度、可选SG和平滑奇数窗口，候选结果表、显示峰位、清除自动标记、CSV导出。切换扫描关闭窗口，曲线切换清空旧结果。独立分析不受图的log/sqrt显示影响。
+新增SciPy>=1.15,<2（本机1.18.1已安装），首次打开寻峰才导入。peak_finding独立Qt无关领域层，finite/单调x校验，降序反转并映回源索引；find_peaks以prominence与width=(None,None)、rel_height=.5检测。以插值左右交点转换真实x宽度，按突出度降序在物理x距离抑制邻峰，再按x输出；不是简单将角度除步长，支持非等距数据。SG可选二阶、默认关，仅均匀x允许，原始y不改；表强度仍为原始采样值。
+自动门槛=max(5×差分MAD噪声估计,信号范围0.01%,float epsilon)，属于本项目默认启发式，弱峰可手动降低。默认间距5×平均步长、最小宽度2×平均步长；最大宽度0不限。不是物理物相鉴定或精修。峰位为采样点，宽度为半突出度宽度（背景不平/重叠时不是FWHM），精确峰位/FWHM可后续用局部pseudo-Voigt等拟合。
+PlotCurve新增peaks源索引，与手工points分开；render用三角标记和峰位文字，显隐随曲线，不进入图例。apply_style保留peaks，剪贴板兼容缺省空并校验索引；settings/presets不含峰数据。寻峰不改POSCAR/研究原始数据。
+74项单元测试覆盖Gaussian位置/宽度、噪声/平峰、物理距离/非等距、降序索引、SG/无效输入及复制。check_peak_finding覆盖真实点击入口、结果/原数据和bounds不变、显隐清除与手工标点隔离、样式保留/CSV/无效窗口。实际BTO-13_10-110_1.ras自动阈值118.1913625检出6个候选峰：21.68、22.74、44.18、46.47、72.55、104.14°；最强46.47°。保留ignored截图，原文件不入库。
+依据SciPy官方find_peaks、peak_prominences、peak_widths、savgol_filter文档，CWT可作为后续多尺度方案，本轮未实现CWT或峰型拟合；不要把检测宽度宣称为拟合半高宽。
+
+## 0.26.0 AFM单位头XY文本与高度分布
+用户指定外部AFM/20261121/Height/BTO-13-A_261121_Z Height_Forward_003_Region.txt，只读核对实际为X Unit: NanoMeter、Y Unit: Pixel及X/Y两列，128点、原X降序、高度-2.3489到10.0205 nm、频数合计65536，最大5161对应-0.1088 nm。这是高度频率曲线，没有二维空间坐标，不能当作AFM形貌矩阵重建。
+curve_data.XYScan提取共用Qt无关模型，保留intensity字段供已有消费端兼容，xrd_io.XrdScan为别名。metadata提供DATA_KIND/PLOT_X_LABEL/PLOT_Y_LABEL；y_label集中默认Intensity及覆盖，RAS逻辑/旧两列语义保持。afm_io按单位头识别，不靠文件名；长度单位+Pixel视为AFM高度分布，标准单位缩写Height(nm/µm等)、Pixel count，其他单位头文本为XY并显示X(unit)/Y(unit)、global模板。解析校验完整/重复/乱序单位头、两列有限值、至少两点及非负频数；负高度合法。保留顺序、零值和原单位元数据，不归一化/平滑/重分箱。
+read_plot_data为兼容read_xrd的中性入口，MainWindow文本数据经内容分流，共用XrdPage/Plot而非复制绘图库。标题/状态/打开消息区分AFM/XY/XRD，选择器在AFM显示曲线；hover读数用真实y_label。新增default/plot-templates/AFM.json：20pt Times黑色图框、线性，自适应，防止误套XRR对数/2θ/Intensity。既有样式/多曲线/图例编辑/标注/范围和导出/成功目录记忆复用。
+新增4项test_afm，69项单元测试通过。check_afm可传外部实际文件，只读验证128点、单位、模型保持、样式标签、hover/zoom、透明PNG、SVG/PDF、失败不更新目录、结构/AFM切换及关闭。实际文件检查成功，截图output/afm-distribution-screen.png与transparent.png，研究原数据不复制入仓库；check_xrd和check_publication_plot回归核验。
+
+## 0.25.3 经典对数主次刻度
+此前scientific_figure对所有轴强制NullLocator次刻度，导致log虽然坐标变换正确却缺少数量级内部疏密刻线。对log且非显式数组模式添加LogLocator(base=10,subs=2..9,numticks=1000)和NullFormatter，次刻度长为主刻度0.6、宽为0.8，方向/颜色共用设置。主刻度/标签格式不变，数组模式（含[]清空）保留精确自定义，不额外插入次刻度。四轴以及共享Figure的屏幕、PNG/SVG/PDF同时生效，缩放后Locator动态重算。
+新增测试核验四轴每个数量级2..9、20..90的刻度位置，投影间距递减，短刻线及无次标签；显式空数组和线性轴无次刻度。65项测试、check_publication_plot及classic-log-ticks.png截图核验通过。测试自带模板预期改为直接读取default模板，不受用户已保存custom覆盖影响。
+
+## 0.25.2 刻度页、上标科学计数及统一勾选框
+scale选择从轴线页移到第二个刻度页顶部；number_format新增scientific，tick_text返回Mathtext的mantissa×10^{exponent}（美元分隔）供原FuncFormatter渲染，数字precision控制尾数小数位，0独立显示0。验证允许新枚举，保留E/e/fixed/auto和自定义标签优先规则。测试验证实际glyph没有^字符、指数小字号且基线上移，不把字符串存储的Mathtext源码误当成显示结果。
+theme.CHECKBOX_STYLE同时加入CONTROLS和MENU_STYLE，QCheckBox/QAbstractItemView/QMenu indicator统一16px、1px暗绿边框及2.4px深色SVG勾，partial同步16px；CenteredCheckDelegate用共享尺寸+边框空间居中，避免裁切。刻度子菜单移除各项icon，使用QActionGroup排他勾选，防止图标占据勾选列；根菜单图标仍保留。可见性QMenu QAction应用同一indicator样式。
+PlotTextEditor QLabel透明，使标签内容/图例内容一行显示DIALOG_BG；输入框仍白色。图内空白菜单顺序重置、粘贴、添加曲线、图片样式、复制图片、导出图片。
+63项单元测试；check_plot_menu_style覆盖分页归属、科学格式、当前唯一勾选、弹窗说明行像素、菜单顺序并保存截图，100%/150%通过；check_visibility_editing检查结构混合勾选/表格编辑，图例及轴交互也通过。
+
+## 0.25.1 双击编辑图例内容
+scientific_figure将实际可见图例条目对应源曲线索引存data.legend_curve_indices，legend_entry_at按Matplotlib文字bbox和DPI比例命中，不按名称查找，兼容同名与隐藏曲线。左键双击文字先清除legend_drag再打开LegendLabelEditor；拖动仍独立生效。PlotTextEditor共用主题化中文编辑UI，AxisLabelEditor/LegendLabelEditor只提供保存回调。
+set_legend_label先用apply_style校验/试绘再提交，保留bounds/legend_anchor，并同步已打开且有对应行的曲线样式草稿、当前字段和下拉名称；未确认不修改，数学错误内联。切换扫描关闭旧图例编辑器。check_legend_editing核验真实双击、同名/隐藏索引、取消/非法公式、Enter、草稿同步、位置/视野不变、复制带新名与扫描切换，原check_plot_interactions复跑覆盖轴编辑及图例拖动。
+
+## 0.25.0 轴范围、图片比例与模板应用
+axis interaction新增interaction_axis，图框上/右装饰边映射到实际可见下/左轴。轴上滚轮沿对应坐标的变换空间围绕指针缩放，只更新对应轴范围；图内滚轮仍双轴缩放。set_axis_range先校验和试绘再提交，主轴更新对应bounds切片，独立副轴只改自身限值；样式草稿的范围保持当前图状态，不能被旧草稿覆盖。move_bounds在平移/缩放后同步已有显式范围，避免主数据轴移动而刻度轴冻结。
+右键范围为QMenu+QWidgetAction承载AxisRangeControls，最小/最大输入默认当前有效值，留空为自动，支持Enter或应用，验证错误内联且不提交；成功关闭菜单。样式轴线页移除minimum/maximum字段，write_plot_config不导出轴范围，模板不携带当前视野。
+general.aspect='auto'默认，支持4:3/1:1/16:9及可编辑宽:高或数值，aspect_ratio统一验证有限正值及0.1–10比值。PlotAspectHost居中适配完整XrdPlot几何，画布事件仍为本地坐标无需逐项偏移；导出直接使用相同比例Figure。宿主背景QSS按objectName限定，避免污染弹出菜单。支持窗口缩放和恢复自适应；比例变化保持数据bounds。
+四个default/plot-templates及default/plot.json统一box=true、size=20、Times New Roman、black、aspect=auto，XRR原log保留。底部确定/应用于模板/应用/取消；应用仅当前图，应用于模板先应用并原子保存当前模板，不广播已打开图。PlotTemplates.writable_path将内置模板映射至custom/plot-templates同名，外选用户模板写回原文件；自带模板保持只读。选择/加载草稿不写文件。
+form标题行用DIALOG_BG背景，白色仅内容；坐标轴补标题且选择框位于标题行右侧。check_plot_ranges_aspect覆盖三种刻度实际轴滚轮、上边框映射、真实范围子菜单、非法输入、样式无范围、比例及导出尺寸、模板custom覆盖及自带文件字节不变。62项单元测试、曲线/交互/论文/工作区检查通过并人工核对标题行、比例、范围截图。
+
+## 0.24.0 标签回归样式、论文预设色与根号轴
+坐标轴标签文字重新加入样式窗口轴标签页，None显示有效自动标签，清空为显式隐藏；保留双击编辑，set_axis_label同步已打开草稿字段。模板仍按0.23规则不覆盖图内容、导出样式不携带轴文字；加载时保留当前输入（包含尚未应用的文字）。
+config/default/plot-colors.json集中48色（灰阶与常用科研多曲线配色），QColorDialog.create通过Qt的setStandardColor替换标准色，不触碰用户custom色。中文标题预设颜色，原取色/Enter/透明绘制保持。Qt PyQt6有standardColor/setStandardColor但无standardColorCount，固定48个标准色槽并测试所有槽。
+轴右键菜单改为刻度子菜单，悬停由QMenu原生展开，线性/根号/对数三个勾选项及图标。样式轴线与范围同样用三选一下拉。存储保留旧log bool并加sqrt bool，校验互斥，缺少sqrt的旧预设补False。
+plot_scales.py封装RootScale/RootTransform/RootLocator，sqrt变换负值mask，逆变换平方；主数据轴和独立四轴一致使用，刻度标签显示原始数值，默认tick在sqrt空间等距。IntervalLocator根号间距按sqrt值，数组优先仍为数据原值；根号限制输入范围/刻度>=0。reset_bounds和move_bounds在sqrt空间留边和缩放，平移不穿过0；导出共用Figure不修改原数据。旧log及XRR模板行为保持。
+新增3项根号领域测试，61项单元测试通过；check_plot_interactions用真实鼠标悬停等450ms验证子菜单展开及切换、根号缩放；check_publication_plot通过样式文字字段编辑数学标签，check_color_dialog校验48色与原交互，check_plot_curves核验菜单结构。
+
+## 0.23.0 图交互、标签内容和文件模板
+只读参考x_rheed studio的DragLegend：受绘图范围约束的自由拖动及移动光标。本项目沿用Matplotlib图例以保留科研导出，左键图例时不平移数据；用轴归一化坐标legend_anchor记录左下位置，rebuild/apply/resize后重设set_loc，修改预设位置时清除anchor。每扫描保存style/template/path/anchor/曲线，切换互不污染。XrdPage把PlotToolbar重新放入图外顶部行右侧，工具栏不再覆盖曲线或导出。
+CurveSelection增加hover_point响应圈和坐标气泡，只在Qt叠层绘制；近曲线移动更新最近点，离开清除，单击（位移<4px）标注，拖动仍平移。右键曲线沿用选择+菜单。双击轴标签通过实际Matplotlib文字bbox命中打开AxisLabelEditor主题化中文窗，验证数学式后应用；图片样式移除label内容字段，保留label_font/size/color。标签变化同步打开样式草稿，模板加载保留当前内容，write_plot_config清除轴标签文字为None。
+PlotTemplates读取config/custom/plot-templates优先于default同名文件，损坏配置记警告并回退；四个内置模板global/XRD/XRR/Rocking Curve，XRR左轴log=true。XrdScan.template_name优先显式测量类型/注释，Omega→Rocking Curve，耦合扫描非负且最大角<=10→XRR，否则XRD，未知global；这不是无歧义物理分类，用户可选择模板修正。Omega显示ω。该目录实际RAS头部没有强制实验类型标识，XRD/XRR都是TwoThetaOmega，已记录范围推断的局限。
+样式左导航下方选择模板按钮+当前应用模板，待应用另标，应用才写入plot模板身份；移除设为默认按钮，原加载/导出仍在左下。选择任意JSON文件支持自定义模板，修改不自动写回文件。默认模板含完整样式，不带研究数据。
+check_plot_interactions实际鼠标核验图例、轴文字双击/Enter、悬停透明导出、单击标点、右键选择、工具栏在图外、模板草稿/内容隔离/逐扫描恢复。只读检查用户20261121目录14个RAS：XRD4、XRR2、Rocking Curve8均识别匹配目录；58项单元测试及曲线/论文样式/工作区检查通过。
+
+## 0.22.1 XRD真实右键事件修复
+2026-11-22用户报告右键闪退，实际发送QContextMenuEvent复现TypeError：event.pos()为QPoint，curve_hit中的QRectF.contains要求QPointF；此前测试直接传QPointF漏检。Windows记录15:21:59 pythonw/Qt6Core 0xc0000409退出，与Qt回调未处理异常退出一致。context_menu入口统一QPointF，contextMenuEvent显式accept并finally deleteLater菜单。check_plot_curves新增Canvas实际上下文事件分发、定时关闭嵌套菜单循环、异常钩子断言，覆盖空白/曲线/轴三种位置。
+
 参考项目：E:/我的文件/personal-lib/lattice，只读参考，不修改。已阅读 README.md 和 crystal.m 头部。
 
 ## 当前实现
@@ -163,3 +306,95 @@ Qt QColorLuminancePicker源码paintEvent的eraseRect在指针侧留白，单改Q
 球体、圆柱/箭头采样及成键候选计算已接入native/纯C++17内核，通过CPython自带C API绑定，无pybind11运行/构建依赖。setup.py build_ext --inplace明确构建，普通安装不需编译；构建wheel可设置CRYSTALX_BUILD_NATIVE=1。native_backend检查API_VERSION=2，模块缺失/加载失败/不兼容回退，实际计算错误不静默吞掉；CRYSTALX_DISABLE_NATIVE=1在进程启动时禁用。计算段释放GIL但仍同步，非UI异步。
 保留python_sphere_image、python_cylinder_colors、python_automatic_bonds。C++成键只做候选/裁剪，Python仍按round(v,8)去重并转换输出，保证顺序/源ID/规则匹配；极小负数%1可为1.0，边界已兼容。MSVC /fp:strict，不使用fast-math。Qt图像/渐变/绘制及缓存不搬迁。
 本机Windows x64/CPython3.14/MSVC14.38编译并实际启用，最终配对中位数球体55.69→4.47ms(12.46x)，100圆柱27.23→11.80ms(2.31x)，512原子成键183.78→37.40ms(4.91x)，4096原子1587.99→423.68ms(3.75x)，负载有波动不保证固定倍数。41项原生测试及六组界面检查通过；禁用时35项通过、6项原生专用跳过。docs/native-kernels.md记录接口/构建/限制；docs/performance/2026-11-16-native-samples.json保留原始样本。编译产物不入Git，其他平台和Python版本需另行构建验证。
+
+## 0.20.0 XRD可视化
+xrd_io.py独立于Qt，读取文本RAS的INT段和HEADER元数据，支持多个扫描、声明点数校验、UTF8/CP932/GB18030解码；保存第三列衰减系数但原强度不修正。两列XY/DAT/TXT/CSV支持注释及简单初始表头；不支持二进制RAW/RASX/XRDML。xrd_page.py为独立XrdPage及QPainter曲线，缩放/平移/恢复、对数、扫描切换、最近点、复制图片，无新依赖。MainWindow按页面类型管理菜单与生命周期，DisplayStyle全局应用只遍历结构视口，XRD没有伪造的StructureDocument。44项测试和check_xrd混合工作区检查通过。用户随后提供外部研究目录的完整路径，已只读实测BTO-13_10-110_1.ras：1扫描10001点，10–110°、步长0.01°、counts，衰减系数全1，最大强度1181913.625位于46.47°。TwoThetaOmega作为耦合扫描横轴映射2θ，原始轴名仍保留。check_xrd.py可传实际文件路径生成output/xrd-real-linear.png和xrd-real-log.png，实际导入、绘图及退出检查成功；原数据不复制进仓库。
+
+## 0.20.1 XRD绘图样式与透明导出
+只读核对output/x_rheed/src/ui/components/plot_chrome.py的HoverToolbar及flux_view.py的_plot：参考重置/可见性/相机三键、右上悬停、无网格、单矩形框、左底刻度7px；本项目用plot_chrome.py集中图框#8a8a8a/刻度#808080/文字黑色/12px及本项目SVG图标，Qt绘图独立实现。屏幕画布白色；XrdPlot.draw_plot复用export_image渲染，ARGB透明初始画布且不填背景，包含完整坐标文字与曲线、排除子控件工具栏。复制setImage与右键PNG导出均走此路径，默认2倍像素。Intensity为默认纵轴名称，有单位追加；对数指数用小字体绘制避免Unicode上标缺字。check_xrd验证屏幕内部白像素、导出内部/外部alpha0、工具栏不影响图像、PNG回读/剪贴板、可见性，并用BTO真实文件核验截图。
+
+## 0.21.0 科学绘图与成功打开目录记忆（覆盖此前QPainter/无绘图库说明）
+SessionState独立读取config/custom/session.json，MainWindow在结构/XRD成功完成打开后调用opened；失败/取消不写。文件选择器共用directory，重启保留，可注入SessionState用于测试，不修改default配置。原目录不存在回退默认。
+新增matplotlib>=3.10,<4。XrdPlot容纳FigureCanvasQTAgg，scientific_figure集中构图，数据层加四个透明坐标轴覆盖层实现独立样式。默认Times New Roman11pt、黑色、白底、左/下轴；config/default/plot.json为默认设置。屏幕与PNG/SVG/PDF共享Figure，透明导出同时处理figure/axes/图例面色，保留图例边框，不导出Qt悬停工具栏；PDF嵌入TrueType、SVG保留常规文字。零/负值在对数数据变换中mask断线，非clip伪线。
+PlotStyleDialog左导航四分类、右滚动内容，axes内再切换左下右上；图内右键默认general，轴区右键默认axes对应side。所有样式集中此处，原顶部log勾选移除。一般字体/字号/颜色/线宽可继承，标签另有覆盖。支持grid/box、四轴范围、方向/长度/宽度/自动或间距或数组刻度、定点/E/e格式与精度、log10间距、图例、线型及marker/face/edge。样式验证与试绘成功后才提交，错误内联、取消保留已应用值；纯样式调整保留缩放。
+matlab_literals安全解析带符号/科学数值、嵌套数组/cell、行分隔、冒号序列及单双引号文本（支持双引号转义），展平成刻度/标签，不eval，不支持MATLAB函数或工作区变量。标签数字转文本，不足补空白，多余截断；空字段为auto，显式{}或[]可清空；输入至多10000项。Mathtext支持本次要求的Greek/rm/mathscr/bf/{}和上下标，非完整外部LaTeX引擎，不调用TeX，普通文字Times或用户字体、数学字体STIX。风格只在当前XRD页会话保留，未承诺跨启动持久化绘图样式。
+新增tests/test_plot_style.py与scripts/check_publication_plot.py，核验解析/代码拒绝、继承、四轴、公式、图例、marker、单位、数值格式、log间距/零值、目录跨重启/格式/失败、导航初始位置、事务及缩放保留、透明图例/背景、PNG/SVG/PDF与剪贴板。BTO真实10001点也已验证；参考图和原始数据不纳入仓库。
+
+0.21.0最终验证：52项测试全部通过，check_publication_plot、check_xrd（含BTO真实文件）、check_workspaces、check_ui通过；已检查设置窗口与真实曲线截图。
+
+## 0.21.1 绘图空白与高DPI修复
+原固定position=[.13,.16,.74,.71]预留约26%宽/29%高，且旧布局只会缩小图框不会收回空白。改为8px基础边距，用各轴tightbbox相对图框bbox的装饰尺寸迭代计算位置，默认只给左下标签实际空间，四轴及大字号亦保留完整。另发现复用FigureCanvasQTAgg但更换Figure后canvas的device_pixel_ratio未变化，Qt不会再次更新新Figure dpi；install_figure显式set_dpi(96*ratio)，统一rebuild/apply路径，避免高DPI物理缓冲区尺寸小于控件。
+新增默认横/竖窗口图框占比与标签不裁切测试，check_xrd校验实际physical画布尺寸；100%/150%/200%缩放检查均通过，BTO真实数据和publication样式/导出检查通过。check_xrd注入独立SessionState，避免自动测试修改用户目录记录。
+
+## 0.22.0 紧凑样式、多曲线与配置（覆盖旧图例和刻度交互）
+PlotStyleDialog左导航28px，字体列表使用普通UI字体和22px行，弹出宽244px；字号/数值140px、字体230px、文本330px、颜色28×28。四轴内WorkspaceTabs再分轴线与范围/刻度/轴标签。继承文案为使用通用设置/使用坐标轴设置。轴label=None表示数据默认，编辑框显示有效值；空字符串表示显式隐藏。tick_mode由数组优先、间距其次、自动最后推导，旧键保留兼容但无UI；数组非空禁用间距，[]显式清空。
+PlotCurve保存x/y/style/label/visible/points。每扫描独立曲线列表，添加文件曲线默认plot N；图例默认显示无框。各曲线草稿独立暂存、切换编辑与选择；未改变curve节的轴/通用修改不得误写当前曲线。单击选择、双击/右键标注最近点，CurveSelection是Qt叠层，导出不包含选择效果。曲线右键复制、图内粘贴及Canvas Ctrl+C/V使用自定义MIME，校验有限数值/长度；源继承颜色和线宽复制时物化，携带标点与名称，目标其他样式及bounds不变。文本输入不接管快捷键。
+上下文菜单全部配图标，重置视图首项；轴含线性/对数快捷切换，图例/轴无图片复制或导出，空图内保留图片操作和添加曲线原生文件选择器。成功添加文件/加载配置更新SessionState。
+PlotDefaults读写config/custom/plot.json；plot_presets使用带format/version的JSON原子写入，完整校验样式及可选逐曲线名称/样式，不写x/y研究数据。加载仅改草稿，设为默认先应用再持久化，后续新图/重启继承，不广播已有图。默认文件损坏警告并回退自带设置。
+57项单元测试通过；check_plot_curves覆盖真实Ctrl+C/V、多曲线隔离、菜单/命中、标注、紧凑字体弹出框、数组优先和默认持久化；check_publication_plot新增配置加载目录记忆，check_display_style验证共用正方形色块兼容。
+
+## 0.35.0 统一曲线、绘图历史与可编辑文件（覆盖早期无历史/标签不入模板说明）
+
+PlotCurve新增稳定uid、source_id、role、metadata、legend_visible、expression、fill_baseline。派生fit/smooth/profile:N通过source_id关联源曲线，数值作为正常曲线存储；轮廓填充基底随派生曲线复制/删除/改色。源peak_analysis保留contours但contour_curves标记避免旧叠加重复绘制。分析重新运行更新相关曲线的数组，保留用户样式/名称；关闭显示隐藏派生线。修改实际扣底使相关派生线过期隐藏。删除源线仅解除关联，不删除独立结果。
+
+LegendEntriesDialog按uid设置legend_visible，与visible分离。scientific_figure维护legend_curve_indices用于图例命中和双击编辑，不能按所有曲线索引直接zip。曲线删除关闭绑定索引的编辑器和分析弹窗，避免旧窗口操作到移位/不存在的曲线。粘贴分配新uid并清source_id，保留源metadata；膜厚窗口切换曲线时按各自metadata恢复波长/坐标类型默认，不借用目标图其他曲线的信息。
+
+PlotHistory每扫描维护committed/history/redo_history，上限100；深复制可变样式/处理状态，x/y数组只读复用，更新派生数组采用替换而非原地修改。记录曲线/样式/分析标记/可见性/范围/图例位置；拖动图例和平移在释放时提交，滚轮提交视图历史。MainWindow按钮/Canvas快捷键接当前页撤销重做；文本框保持原生文本历史。历史不序列化进图文件。
+
+expressions.py使用受限AST数值运算，无eval/exec。支持常用numpy数学函数（大小写不敏感）、^、Mathematica []调用、末尾{变量,最小,最大}优先于第二行域；函数单变量1501点、x/y隐式方程350²网格零等高线。方程纵域为当前y范围，多个分支生成多曲线；这不是完整Mathematica，不支持任意符号求解或外部代码。
+
+plot_document.py定义CrystalX.PlotDocument v1，扩展.cxplot，原子替换JSON写入。每扫描保存原始XYScan及曲线/样式/范围/图例锚点/当前选择/模板名称；所有数据嵌入，无外部数据依赖。外部文件逐字段校验，拒绝非有限坐标、重复uid等，恢复仅读取数值，不执行expression。活动扫描按对象身份定位，不能用dataclass相等性查index（扫描内容可能完全相同）。模板路径不写入文件，避免携带机器相关写入位置。
+
+文件菜单保存/另存为支持图文件；导出POSCAR/图片/矢量图分组，图内导出子菜单含剪贴板/文件/SVG/PDF。模板write_plot_config保留显式轴label，清除min/max，加载配置尊重其显式标签；None仍为按扫描自动命名。README写明此新规则覆盖旧行为。
+
+Qt右键日志异常已独立复现为QWindow无window()；runtime仅对QWidget调用。math_ui所有8个拥有QPainter的paintEvent使用with确定释放，数学表格选中态按浅绿配深字，不取系统白色HighlightedText。检查包含QWindow/QObject ContextMenu、实际嵌套菜单、膜厚+标签修改顺序。
+
+## 0.35.1 低计数宽峰拟合
+
+实际rc_68.8562.cxplot两条数据均2401点、步长0.001°、噪声MAD估计约1.09 counts。旧1.5采样点种子平滑保留细噪声极值，第一条局部多峰拟合不收敛；第二条被自动突出度约5.47和固定raw R²>=0.65挡掉。用宽峰初值拟合原始数据可收敛，不能把此文件认定为无峰或数据损坏。
+
+peak_fit.fit_peaks先保留原流程；失败/无峰且n>=49、ptp(y)<25*noise时，用sigma=max(3,min(24,n/100))采样点生成宽峰种子，自动阈值按高斯滤波噪声衰减估计，用户显式prominence仍优先。宽峰种子要求宽度>=4sigma采样步长。优化目标仍是原始y，不使用平滑数据替换原始拟合。raw R²<0.65时仅宽峰重试允许继续，需raw R²>0、趋势R²>=0.85及相对线性基线的BIC增益>10；峰高原有3noise约束仍保留。报告R²不替换为趋势R²，UI明确低信噪比提示。它是有约束的识别规则，不证明物理峰型唯一或提供参数不确定度。
+
+实际不对称伪Voigt结果：34.2038248°、FWHM 0.4776091°、raw R² 0.5901317；34.6091315°、FWHM 0.4543926°、raw R² 0.5291949。原文件只读校验和不变；scripts/check_low_count_fit.py接受外部cxplot路径，验证实际Qt分析、独立模型线、保存回读；生成图仅output，不把研究数据提交Git。110项测试通过，含合成低计数宽峰和纯噪声拒绝。
+
+## 0.36.0 绘图单位自动准备与RASX
+
+用户授权按步长/速度推算计数率；确认XRR的q_z是横轴，纵轴保留强度。plot_units.prepare_scan只准备绘图副本，XYScan原始扫描保留在page.scans。XRD/RC counts按dt=step/speed（deg/min乘60）除以dt，metadata更新counts/s并记录CRYSTALX_COUNTS_TIME_S及转换依据；cps已归一化不再除。缺有效参数保留原单位，不伪造标签。XRR角度按文件Kα1及单位换算4πsinθ/λ到Å⁻¹，2θ轴先除2；缺波长不套默认Cu，保留角度和说明。
+
+XrdPlot.display_scan独立提供绘图轴默认文字和读数；曲线x/y是当前单位，背景、寻峰、膜厚及导出共用它。原始scan对象身份继续用于多扫描缓存。模板样式读默认标签时使用display_scan。膜厚识别1/angstrom为q_a；无需把q再当角度换算。FileInfo仍显示源文件信息，同时附绘图坐标、推算时间、倍数与缺失参数说明。
+
+plot_units.prepare_state读取旧.cxplot时迁移曲线x/y、背景/填充、峰位置、膜厚标记、轮廓数组/范围及视野；原始scans不改。转换后曲线metadata保留当前单位，反复保存/读回幂等。用户手工写的图注文本不自动重写，避免覆盖内容。
+
+xrd_io.read_rasx从zip直接读取DataN/ProfileN.txt与MesurementConditionsN.xml，不提取到用户目录。RASHeader并非完整扫描信息，必须以ScanInformation映射轴、步长、速度及单位，波长从HWConfigurations/XrayGenerator读取；RASX波长字段按该格式Å值映射。复用原RAS输入校验，三列衰减系数保留但不自行应用。文件/添加曲线过滤器支持.rasx。
+
+115项测试及check_plot_units实际三个文件检查通过；XRD实例步长0.01°、5°/min→0.12s→8.3333倍，RC实例0.001°、1°/min→0.06s→16.667倍；XRR实际文件确认qz膜厚测试50nm与保存回读，原文件哈希不变。该时间转换是按文件声明及用户授权推算，不声称已对照原厂cps导出。
+
+## 0.36.1 空图例保留
+scientific_figure在legend.visible为true时始终创建Legend，即使handles为空；空对象不绘制导出边框。LegendHandle作为Qt透明鼠标叠层，空图例保留至少84×28px占位、浅色虚线边及双线手柄，普通图例悬停显示边与手柄。legend_rect统一命中空/非空区域；旧legend拖动继续生效。LegendEntriesDialog应用时将现有bbox位置固定为axes坐标anchor，不因清空条目而换位。叠层不在Matplotlib输出中，导出无占位。scripts/check_empty_legend验证全取消/恢复、右键入口、hover/drag及导出像素不变。115项单元测试通过。
+
+AFM识别现状：afm_io前12行存在X Unit或Y Unit才进入read_unit_xy；完整双单位头、两列有限数值；X长度单位且Y单位pixels标记DATA_KIND=AFM，负像素数拒绝。这是高度分布启发式，不靠文件名，也不是通用直方图文件识别。
+
+## 0.36.2 AFM线剖面与共享模板
+afm_io.py单位表新增picometer/picometre/pm。完整单位头X/Y均为长度时归AFM profile，X长度/Y pixels仍为AFM distribution；AFM_TYPE区分，二者DATA_KIND=AFM、template_name=AFM，共享同一个模板，不创建Line专用模板。profile默认Distance(X单位)/Height(Y单位)，distribution仍Height/Pixel count；原始数值不变，负高度合法，长度-长度内容识别不依赖Line文件名。scan_info针对profile直接对高度列计算均值、极值、峰谷差、方差、相对均值Ra/Rq，注明剖面统计不是全区域；旧无AFM_TYPE的AFM文件仍按distribution兼容。
+实际BTO10_261126_Z Height_Backward_002_Line_slanted.txt为248点、MicroMeter/PicoMeter；Region为128点、NanoMeter/Pixel，两者真实Qt打开、共用AFM模板及文件信息验证通过，116项单元测试通过。
+
+## 0.36.3 图片比例拖动
+PlotAspectHost新增AspectGrip，父对象为host，定位绘图矩形右下角，不在Matplotlib内容及导出中。globalPosition相对拖动初始尺寸计算ratio，范围沿用0.1–10；40ms定时节流重绘，拖动中history_locked，释放后提交单步历史。只改general.aspect，保留bounds及数据。双击设auto；拖动结束同步已打开PlotStyleDialog的比例字段，不覆盖其他草稿。原有自适应/4:3/1:1/16:9及自定义w:h设置继续沿用。check_plot_ratio_drag覆盖实际鼠标拖动、比例几何、草稿同步、undo/redo、导出像素宽高比、cxplot往返及双击恢复。
+
+## 0.37.0 XRR周期辅助条纹识别
+
+xrr_fringe.py领域模块analyze_fringes返回FringeAnalysis及PeakResult。完整输入建立均匀网格、正数log插值；保留零值比例用于噪声抑制而非给原始数据加常数。强动态范围下，以降至最大强度约1/50作为低角度强衰减排除建议，以局部log噪声或零比例判断高q尾部；这些是启发式范围，不是临界角物理拟合。
+
+对建议区间的去趋势信号做Hann周期谱（8倍补零仅提高读数插值）和自相关确认，突出第二周期时提示多周期。平滑宽度period/60、趋势尺度0.8period，局部MAD阈值和>=0.55period候选间距，回到原始log平滑曲线寻找附近真实局部极大值。无明确峰顶、低局部信噪比、多周期、周期不一致或疑似漏峰时列待确认；不构造缺失峰。固定完整数据上的滤波尺度再按用户范围过滤，避免旧算法len(crop)/30导致裁剪时改变候选集合。默认prominence自然对数相对单位，用户显式可调；min/max宽度为检测信号宽度而非FWHM。
+
+Peak新增默认status/reason字段，不改变原有XRD/RC结果默认可靠。XRR专用方法只在PeakFindingDialog额外注册，不加入全局PEAK_METHODS，避免把通用API默认为XRR。结果表增可信度/说明，FWHM列在条纹模式隐藏；CSV仍可导出空FWHM及状态/原因。算法判定可靠不等于物理真实性。source.peaks仅含可靠候选；待确认存peak_analysis.fringe_candidates，用空心菱形绘制，剪贴板/旧单位迁移同步校验转换该字段。平滑结果作为独立曲线，原始强度不改。
+
+膜厚窗与旧detect_fringe_maxima包装共用核心，后者只返回可靠位置；默认建议范围，表第五列说明，待确认默认不勾选，用户可手动确认/删除/新增/调整级次。顶部和膜厚“自动识别”同范围/默认参数得到相同可靠位置；输入包含非默认平滑/扣底时实际检测统一使用display_y。load_rows一次提交勾选/说明避免候选临时全勾引入额外标记历史。
+
+文献依据：Lammel et al., arXiv:2008.04626（FFT用于条纹周期/厚度，Gaussian拟合的是频谱）；SasView Kiessig Thickness Calculator；refnx反射率物理模型含背景/分辨率。当前方案为本项目混合识别规则，不声称文献给出同一算法，也未实现完整Parratt/Abeles层模型拟合。
+
+121项测试通过：裁剪、采样密度、倒序索引、多周期、单调/白噪声拒绝及旧功能。实际BTO2 4可靠+3待确认，BTO10 7+2，BTO13 XRR_1 6+5；周期约0.02777/0.02198/0.01893 Å⁻¹，为估计而非膜厚真值。check_xrr_fringe_ui验证三个原始文件哈希不变、Qt默认方法、同入口结果、待确认排除、图文件往返；check_plot_documents显式选择fit测试通用模型曲线，不把XRR默认当fit。
+
+## 0.37.1 主工作区关闭按钮统一
+WorkspaceTabBar在closable及tabInserted时为每个标签安装TabCloseButton，直接绘制居中深色叉号，不使用Qt原生图标/主题选中态。按钮18×18，右侧留9px，文字左10右34；currentChanged、tabMoved、resize/tabLayoutChange及paint刷新几何，原生滚动箭头优先置顶。点击按当前tabButton对象查实时索引后发tabCloseRequested，避免排序后关闭错页。移除StructurePage独有按钮分支，绘图/结构使用同一实现；非closable样式弹窗标签不受影响。
+MainWindow.close_tab使用page is None检查，允许最后一个文档关闭，空工作区logo由update_actions恢复。绘图关闭显式清理close_analysis、close_editors、框选及文件信息窗后再deleteLater。check_tab_closing在100%/150%实际点击混合标签直到零个、重开、排序、长标题溢出及双状态深色像素通过；check_runtime_stability通过。

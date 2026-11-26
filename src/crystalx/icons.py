@@ -12,6 +12,9 @@ PATHS={
 'expand':'<path d="m5 9 7 7 7-7"/>'}
 
 PATHS['rotate']=PATHS['select']
+PATHS['find_peaks']='<path d="M2 20h20M3 18l4-12 4 12 4-8 4 8M7 2v2M15 5v3"/><circle cx="7" cy="6" r="1"/>'
+PATHS['film_thickness']='<path d="M3 6h12M3 18h12M4 10h10M4 14h10M19 5v14m-3-11 3-3 3 3m-6 8 3 3 3-3"/>'
+PATHS['plot_sqrt']='<path d="m3 13 4 7 5-16h9M13 18l7-8"/>'
 PATHS['select']='<rect x="3" y="3" width="18" height="18" stroke-dasharray="3 3"/>'
 PATHS['clear']='<rect x="3" y="3" width="18" height="18" stroke-dasharray="3 3"/><path d="m7 7 10 10M17 7 7 17"/>'
 PATHS['fit']='<path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6"/><rect x="8" y="8" width="8" height="8"/>'
@@ -38,6 +41,19 @@ PATHS['view6']='<path d="M2 9h12v13H2ZM9 2h13v13h-8M2 9l7-7M14 9l8-7M14 22l8-7"/
 
 PATHS['eye']='<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>'
 PATHS['help']='<circle cx="12" cy="12" r="10"/><path d="M9 8a3 3 0 1 1 5 2c-2 1-2 2-2 3M12 17h.01"/>'
+
+PATHS['plot_reset']='<path d="M19 8A8 8 0 1 0 20 16M19 3v6h-6"/>'
+PATHS['plot_camera']='<rect x="2" y="6" width="20" height="16" rx="2"/><circle cx="12" cy="14" r="4"/><path d="m7 6 2-3h6l2 3"/>'
+
+PATHS['plot_style']='<path d="M4 5h16M4 12h16M4 19h16"/><circle cx="8" cy="5" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="19" r="2"/>'
+PATHS['curve_copy']='<path d="M7 7V3h14v14h-4"/><rect x="3" y="7" width="14" height="14" rx="2"/><path d="m5 17 3-4 3 2 4-5"/>'
+PATHS['curve_paste']='<rect x="4" y="5" width="16" height="16" rx="2"/><rect x="8" y="2" width="8" height="5" rx="1"/><path d="m7 17 3-5 3 3 4-5"/>'
+PATHS['plot_point']='<path d="M3 20V4m0 16h18M6 17l5-9 7 4"/><circle cx="11" cy="8" r="3"/>'
+PATHS['plot_save']='<path d="M4 3h13l4 4v14H3V3Zm3 0v6h10V3M7 21v-7h10v7"/>'
+PATHS['plot_linear']='<path d="M3 3v18h18M6 17l12-12"/>'
+PATHS['plot_log']='<path d="M3 3v18h18M6 17c1-9 5-10 13-11"/>'
+
+PATHS['plot_open']='<path d="M3 7h7l2 2h9v12H3ZM3 7V4h7l2 3M12 11v7m-3-3h6"/>'
 
 from functools import lru_cache
 @lru_cache(maxsize=64)

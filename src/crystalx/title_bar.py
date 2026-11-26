@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import QWidget,QHBoxLayout,QLabel,QToolButton
 from .icons import icon
 from .theme import window_control_css,TITLE_BAR_HEIGHT
 
+from .math_ui import MathLabel as QLabel, MathToolButton as QToolButton
+
 class TitleBar(QWidget):
     def __init__(self,window):
         super().__init__(window)

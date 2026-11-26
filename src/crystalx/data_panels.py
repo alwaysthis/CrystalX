@@ -7,6 +7,8 @@ from .icons import icon
 from .workspace_tabs import WorkspaceTabs
 from .dialog_chrome import install_dialog_chrome
 
+from .math_ui import MathLabel as QLabel, MathPushButton as QPushButton, MathTableWidget as QTableWidget, MathToolButton as QToolButton, MathTreeWidget as QTreeWidget
+
 class CoordinateDialog(QDialog):
     selection_changed=pyqtSignal(set)
     def __init__(self,parent):

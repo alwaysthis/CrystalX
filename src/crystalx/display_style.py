@@ -10,10 +10,12 @@ from .dialog_chrome import install_dialog_chrome
 from .appearance import (DEFAULT_STYLE,FACTORY_STYLE,ATOM_KEYS,BOND_KEYS,CELL_KEYS,
     validate_settings,read_preset,write_preset)
 
+from .math_ui import MathCheckBox as QCheckBox, MathComboBox as QComboBox, MathLabel as QLabel, MathPushButton as QPushButton
+
 class ColorButton(QPushButton):
     colorChanged=pyqtSignal()
     def __init__(self):
-        super().__init__(); self.setAutoDefault(False); self.setDefault(False); self.setFixedSize(42,25); self.value='#808080'; self.clicked.connect(self.pick); self.setToolTip('选择颜色')
+        super().__init__(); self.setAutoDefault(False); self.setDefault(False); self.setFixedSize(28,28); self.value='#808080'; self.clicked.connect(self.pick); self.setToolTip('选择颜色')
     def set_color(self,value):
         self.value=value; self.setStyleSheet(f'QPushButton {{background:{value};border:1px solid #87998d;border-radius:5px;padding:0;}} QPushButton:hover {{border:2px solid #354f3e;}}'); self.colorChanged.emit()
     def pick(self):
@@ -174,7 +176,9 @@ class DisplayStyleDialog(QDialog):
     def global_apply(self,patch):
         if hasattr(self.host,'appearance_store'):
             self.host.appearance_store.current.update(deepcopy(patch))
-            for index in range(self.host.work_tabs.count()): self.update_view(self.host.work_tabs.widget(index).viewport,patch)
+            for index in range(self.host.work_tabs.count()):
+                page=self.host.work_tabs.widget(index)
+                if hasattr(page,'viewport'): self.update_view(page.viewport,patch)
         else: self.update_view(self.viewport,patch)
     def apply(self):
         settings=self.values(); patch={k:v for k,v in settings.items() if self.force_all or self.baseline[k]!=v}; scope=self.scope.currentIndex()

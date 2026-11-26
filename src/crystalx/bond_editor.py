@@ -9,6 +9,8 @@ from .dialog_chrome import install_dialog_chrome
 from .dialogs import QMessageBox
 
 
+from .math_ui import MathLabel as QLabel, MathPushButton as QPushButton, MathTableWidget as QTableWidget
+
 class BondEditor(QDialog):
     def __init__(self,viewport,parent):
         super().__init__(parent); self.viewport=viewport

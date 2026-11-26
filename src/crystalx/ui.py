@@ -36,6 +36,9 @@ from .panels import framed_panel,WelcomeLogo
 
 
 
+from .math_ui import MathCheckBox as QCheckBox, MathComboBox as QComboBox, MathLabel as QLabel, MathMenu as QMenu, MathPlainTextEdit as QPlainTextEdit, MathPushButton as QPushButton, MathTableWidget as QTableWidget, MathToolButton as QToolButton, MathTreeWidget as QTreeWidget
+from .math_ui import draw_at
+
 class CrystalViewport(QWidget):
     picked = pyqtSignal(int)
     boxed = pyqtSignal(set)
@@ -219,7 +222,7 @@ class CrystalViewport(QWidget):
                 if self.appearance['numbers_visible']: labels.append(str(source+1))
                 if self.appearance['tags_visible'] and self.structure.tags[source]: labels.append(self.structure.tags[source])
                 if labels:
-                    point,_=self.project(position); p.drawText(point+QPointF(self.atom_radius(i)+4,0),' · '.join(labels))
+                    point,_=self.project(position); draw_at(p,point+QPointF(self.atom_radius(i)+4,0),' · '.join(labels))
         origin=QPointF(65,self.height()-75)
         if self.lattice and self.appearance["axes_visible"]:
             for index in sorted(range(3),key=lambda i:self.camera_point(self.lattice[i])[2]):
@@ -313,9 +316,13 @@ class CrystalViewport(QWidget):
     def wheelEvent(self,event):
         self.zoom=max(.35,min(2.5,self.zoom* (1.1 if event.angleDelta().y()>0 else .9))); self.update()
 
+from .session_state import SessionState
+from .xrd_io import read_plot_data
+from .xrd_page import XrdPage
+
 class MainWindow(QMainWindow):
-    def __init__(self,config):
-        super().__init__(); self.config=config; self.appearance_store=AppearanceStore()
+    def __init__(self,config,session_state=None):
+        super().__init__(); self.config=config; self.appearance_store=AppearanceStore(); self.session_state=session_state or SessionState()
         if not self.appearance_store.path.exists(): self.appearance_store.current.update(config.get('bond_settings',{}))
         self.resize(config['window_width'],config['window_height']); self.setWindowTitle('CrystalX')
         self.setStyleSheet(STYLE+CONTROLS+ICON_BUTTONS+WORKSPACE_TABS+stepper_css()+SLIDERS+PANELS+PANE_FRAMES)
@@ -324,11 +331,14 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(str(Path(__file__).resolve().parents[2]/'assets/crystalx.svg')))
         self.buttons={}
         file_menu=self.menuBar().addMenu('文件')
-        for name,callback,shortcut in [('打开',self.open_file,'Ctrl+O'),('保存',self.save_file,'Ctrl+S'),('导出 POSCAR',lambda:self.save_file(True),'Ctrl+Shift+S')]:
+        for name,callback,shortcut in [('打开',self.open_file,'Ctrl+O'),('保存',self.save_file,'Ctrl+S'),('另存为',lambda:self.save_file(True),'Ctrl+Shift+S')]:
             action=file_menu.addAction(name); action.setShortcut(shortcut); action.triggered.connect(callback); self.buttons[name]=action
+        exports=file_menu.addMenu('导出为'); apply_menu_theme(exports)
+        self.buttons['导出 POSCAR']=exports.addAction('POSCAR',lambda:self.save_file(True))
+        self.export_bitmap=exports.addAction('图片',lambda:self.export_current(False)); self.export_vector=exports.addAction('矢量图',lambda:self.export_current(True))
         file_menu.addSeparator(); file_menu.addAction('退出',self.close)
         edit=self.menuBar().addMenu('编辑'); self.coordinates_action=edit.addAction('结构',lambda:self.call_page('show_coordinates'))
-        edit.addAction('键',lambda:self.call_page('show_bonds'))
+        self.bonds_action=edit.addAction('键',lambda:self.call_page('show_bonds'))
         view=self.menuBar().addMenu('查看'); view.addAction('显示终端',self.show_terminal)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         menu_bar=self.menuBar(); menu_bar.setFixedHeight(TITLE_BAR_HEIGHT)
@@ -375,53 +385,99 @@ class MainWindow(QMainWindow):
 
     def call_page(self,name,*args):
         page=self.current_page()
-        if page: return getattr(page,name)(*args)
+        if page and hasattr(page,name): return getattr(page,name)(*args)
         return False
 
     def undo(self): self.call_page('undo')
     def redo(self): self.call_page('redo')
+    def export_current(self,vector=False):
+        page=self.current_page()
+        if isinstance(page,XrdPage): page.plot.save_image(vector)
+        elif isinstance(page,StructurePage):
+            path,_=QFileDialog.getSaveFileName(self,'导出图片','structure.svg' if vector else 'structure.png','SVG 矢量图 (*.svg)' if vector else 'PNG 图片 (*.png)')
+            if path:
+                extension='.svg' if vector else '.png'
+                if Path(path).suffix.lower()!=extension: path+=extension
+                try:
+                    if vector:
+                        from PyQt6.QtSvg import QSvgGenerator
+                        generator=QSvgGenerator(); generator.setFileName(path); generator.setSize(page.viewport.size()); generator.setViewBox(page.viewport.rect())
+                        painter=QPainter(generator)
+                        if not painter.isActive(): raise ValueError('无法写入矢量图片，请检查保存位置。')
+                        try: page.viewport.paint_scene(painter,True)
+                        finally: painter.end()
+                    elif not page.viewport.scene_image().save(path): raise ValueError('无法写入图片，请检查保存位置。')
+                except (OSError,ValueError) as error: QMessageBox.warning(self,'导出失败',str(error))
     def save_file(self,save_as=False): return self.call_page('save_file',save_as)
 
     def open_file(self):
-        path,_=QFileDialog.getOpenFileName(self,'打开结构','','结构文件 (POSCAR* CONTCAR* *.vasp *.cif);;所有文件 (*)')
-        if path: self.load_path(path)
+        paths,_=QFileDialog.getOpenFileNames(self,'打开文件',self.session_state.directory,'支持的文件 (POSCAR* CONTCAR* *.vasp *.cif *.ras *.rasx *.xy *.dat *.txt *.csv *.cxplot);;CrystalX 图文件 (*.cxplot);;曲线数据 (*.ras *.rasx *.xy *.dat *.txt *.csv);;AFM高度导出文本 (*.txt);;结构文件 (POSCAR* CONTCAR* *.vasp *.cif);;所有文件 (*)')
+        if paths: self.load_paths(paths)
 
-    def load_path(self,path):
+    def load_paths(self,paths):
+        opened=0; failures=[]
+        for path in paths:
+            if self.load_path(path,report_errors=False): opened+=1
+            else: failures.append(f'{Path(path).name}：{self.last_open_error}')
+        if failures: QMessageBox.warning(self,'部分文件打开失败','\n'.join(failures))
+        return opened
+
+    def load_path(self,path,report_errors=True):
+        self.last_open_error=''
+        if Path(path).suffix.lower() in ('.ras','.rasx','.xy','.dat','.txt','.csv','.cxplot'):
+            try:
+                if Path(path).suffix.lower()=='.cxplot':
+                    from .plot_document import read_document
+                    scans,states,active,name=read_document(path); page=XrdPage(Path(path),scans); page.restore_document(states,active,name)
+                else: page=XrdPage(Path(path),read_plot_data(path))
+            except (ValueError,OSError) as error:
+                self.last_open_error=str(error)
+                if report_errors: QMessageBox.warning(self,'打开失败',str(error))
+                return False
+            self.work_tabs.addTab(page,Path(path).name); self.work_tabs.setCurrentWidget(page); self.update_actions()
+            self.session_state.opened(path)
+            self.messages.appendPlainText(f'已打开 {page.kind_label.text()} {Path(path).name}，{len(page.scans)} {page.series_label}'); return True
         try: structure=read_cif(path) if Path(path).suffix.lower()=='.cif' else read_poscar(path)
         except (ValueError,OSError) as error:
-            QMessageBox.warning(self,'打开失败',str(error)); return False
+            self.last_open_error=str(error)
+            if report_errors: QMessageBox.warning(self,'打开失败',str(error))
+            return False
         page=StructurePage(self); page.document=StructureDocument(structure); page.path=Path(path); page.refresh()
         index=self.work_tabs.addTab(page,Path(path).name)
-        close=QToolButton(); close.setIcon(icon('window_close')); close.setFixedSize(20,20); close.setToolTip('关闭结构'); close.setStyleSheet('QToolButton {border:0;background:transparent;} QToolButton:hover {background:#ead7d5;}')
-        close.clicked.connect(lambda checked=False,page=page:self.close_tab(self.work_tabs.indexOf(page)))
-        from PyQt6.QtWidgets import QTabBar
-        self.work_tabs.tabBar().setTabButton(index,QTabBar.ButtonPosition.RightSide,close)
         self.work_tabs.setCurrentIndex(index); page.reset_view(); self.update_actions()
+        self.session_state.opened(path)
         page.output(f'已打开 {Path(path).name}，{len(structure.elements)} 个原子'); return True
 
     def close_tab(self,index):
         page=self.work_tabs.widget(index)
-        if not page or not page.confirm_changes(): return False
-        page.coordinate_dialog.close()
-        if page.bond_dialog: page.bond_dialog.close()
-        if page.viewport.style_dialog: page.viewport.style_dialog.close()
+        if page is None or not page.confirm_changes(): return False
+        if isinstance(page,StructurePage):
+            page.coordinate_dialog.close()
+            if page.bond_dialog: page.bond_dialog.close()
+            if page.viewport.style_dialog: page.viewport.style_dialog.close()
+        elif isinstance(page,XrdPage):
+            page.close_analysis(); page.plot.close_editors(); page.plot.cancel_peak_selection()
+            if page.info_dialog is not None: page.info_dialog.close(); page.info_dialog.deleteLater(); page.info_dialog=None
         self.work_tabs.removeTab(index); page.deleteLater(); self.update_actions(); return True
 
     def update_actions(self,*args):
-        page=self.current_page(); document=page.document if page else None
-        for key in ['保存','导出 POSCAR']: self.buttons[key].setEnabled(page is not None)
-        self.coordinates_action.setEnabled(page is not None)
+        page=self.current_page(); document=page.document if isinstance(page,StructurePage) else None
+        self.buttons['保存'].setEnabled(page is not None); self.buttons['另存为'].setEnabled(page is not None); self.buttons['导出 POSCAR'].setEnabled(document is not None)
+        self.export_bitmap.setEnabled(page is not None); self.export_vector.setEnabled(page is not None)
+        self.coordinates_action.setEnabled(document is not None)
+        self.bonds_action.setEnabled(document is not None)
         self.welcome_logo.setVisible(self.work_tabs.count()==0)
-        self.buttons['撤销'].setEnabled(bool(document and document.index>0))
-        self.buttons['重做'].setEnabled(bool(document and document.index<len(document.commands)))
+        self.buttons['撤销'].setEnabled(page.plot.can_undo if isinstance(page,XrdPage) else bool(document and document.index>0))
+        self.buttons['重做'].setEnabled(page.plot.can_redo if isinstance(page,XrdPage) else bool(document and document.index<len(document.commands)))
         for i in range(self.work_tabs.count()):
             item=self.work_tabs.widget(i)
-            if item is not page:
+            if item is not page and isinstance(item,StructurePage):
                 item.coordinate_dialog.hide()
                 if item.bond_dialog: item.bond_dialog.hide()
                 if item.viewport.style_dialog: item.viewport.style_dialog.hide()
-            self.work_tabs.setTabText(i,(item.path.name if item.path else '结构')+(' *' if item.document.dirty else ''))
+            self.work_tabs.setTabText(i,(item.path.name if item.path else '结构')+(' *' if isinstance(item,StructurePage) and item.document.dirty else ''))
         if not page: self.statusBar().showMessage('就绪')
+        elif isinstance(page,XrdPage): self.statusBar().showMessage(f'{page.kind_label.text()} | {len(page.scans)} {page.series_label} | {sum(len(s.x) for s in page.scans)} 个数据点')
         elif page.document.structure: self.statusBar().showMessage(f'原子 {len(page.document.structure.elements)} | 已选 {len(page.selected)} | {page.coordinates.currentText()}')
 
     def show_terminal(self): self.terminal_panel.show()

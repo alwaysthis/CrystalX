@@ -24,7 +24,11 @@ editor.hide()
 dialog=QColorDialog.create(QColor('#123456'),style); dialog.show(); app.processEvents()
 assert QCoreApplication.translate('QColorDialog','Cursor at %1, %2\nPress ESC to cancel').startswith('光标位置')
 labels={label.text().replace('&','') for label in dialog.findChildren(QLabel)}
-assert {'基本颜色','自定义颜色','色相：','饱和度：','明度：','十六进制：'}<=labels
+assert {'预设颜色','自定义颜色','色相：','饱和度：','明度：','十六进制：'}<=labels
+import json
+colors=json.loads((root/'config/default/plot-colors.json').read_text(encoding='utf-8'))
+assert len(colors)==48
+assert all(QColorDialog.standardColor(i).name()==color for i,color in enumerate(colors))
 assert not any('HTML' in text or 'Basic' in text or 'Custom' in text for text in labels)
 buttons={button.text().replace('&','') for button in dialog.findChildren(QPushButton)}
 assert {'确定','取消','屏幕取色','添加到自定义颜色'}<=buttons

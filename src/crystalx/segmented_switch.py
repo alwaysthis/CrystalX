@@ -2,6 +2,8 @@ from PyQt6.QtCore import Qt,QRectF,QPropertyAnimation,pyqtProperty,QEasingCurve
 from PyQt6.QtGui import QPainter,QColor,QPen
 from PyQt6.QtWidgets import QToolButton
 
+from .math_ui import MathToolButton as QToolButton
+
 class CoordinateSwitch(QToolButton):
     def __init__(self):
         super().__init__(); self.setCheckable(True); self.position=0.; self.animation=QPropertyAnimation(self,b'thumb'); self.animation.setDuration(160); self.animation.setEasingCurve(QEasingCurve.Type.InOutCubic)

@@ -5,6 +5,9 @@ from PyQt6.QtGui import QPainter,QPen,QColor
 from .icons import icon
 from .theme import DIALOG_BG,window_control_css
 
+from .math_ui import MathLabel as QLabel, MathPushButton as QPushButton, MathToolButton as QToolButton
+from PyQt6.QtWidgets import QPushButton as QtPushButton
+
 class DialogTitleBar(QWidget):
     def __init__(self,dialog):
         super().__init__(dialog); self.dialog=dialog; self.setFixedHeight(34)
@@ -48,8 +51,11 @@ def install_dialog_chrome(dialog,layout):
     dialog.setAutoFillBackground(False); dialog.setObjectName('themedDialog')
     dialog.setStyleSheet(dialog.styleSheet()+'QDialog#themedDialog {background:transparent;border:0;}')
     dialog.setSizeGripEnabled(False)
-    for button in dialog.findChildren(QPushButton):
+    for button in dialog.findChildren(QtPushButton):
         button.setAutoDefault(False); button.setDefault(False)
+    # Native QMessageBox can rebuild its grid when window/style flags change.
+    # The layout supplied before those changes may already have been destroyed.
+    layout=dialog.layout()
     # Keep all opaque children inside the rounded surface rather than clipping them.
     layout.setContentsMargins(12,8,12,12)
     dialog.title_bar=DialogTitleBar(dialog)

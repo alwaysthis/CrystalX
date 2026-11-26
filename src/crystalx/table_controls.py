@@ -1,10 +1,11 @@
 """Shared centered checkbox delegate for compact editor tables."""
 from PyQt6.QtCore import Qt,QEvent,QRect
 from PyQt6.QtWidgets import QStyledItemDelegate,QStyle,QStyleOptionViewItem
+from .theme import CHECKBOX_SIZE
 
 class CenteredCheckDelegate(QStyledItemDelegate):
     def paint(self,painter,option,index):
-        check=QStyleOptionViewItem(option); check.rect=QRect(option.rect.center().x()-7,option.rect.center().y()-7,14,14)
+        check=QStyleOptionViewItem(option); check.rect=QRect(0,0,CHECKBOX_SIZE+2,CHECKBOX_SIZE+2); check.rect.moveCenter(option.rect.center())
         check.state=QStyle.StateFlag.State_Enabled
         state=index.data(Qt.ItemDataRole.CheckStateRole)
         check.state|=QStyle.StateFlag.State_On if state==Qt.CheckState.Checked.value else QStyle.StateFlag.State_Off
